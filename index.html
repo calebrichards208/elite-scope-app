@@ -797,13 +797,16 @@ h1, h2, .label {
     <textarea id="additional-notes" rows="3" placeholder="e.g. Owner to pay electrician directly for all electrical work"
       style="width:100%;padding:10px 12px;border:1.5px solid var(--silver);border-radius:6px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--navy);resize:vertical;background:var(--bg);"
       onfocus="this.style.borderColor='var(--amber)'" onblur="this.style.borderColor='var(--silver)'"></textarea>
-    <button onclick="toggleNotesMic()" id="notes-mic-btn" style="
-      margin-top:8px;width:100%;padding:11px;background:none;
-      border:1.5px solid var(--silver);border-radius:6px;
-      font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;
-      letter-spacing:0.04em;color:var(--slate);text-transform:uppercase;
-      cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;
-    ">🎤 Add Notes</button>
+    <div style="display:flex;flex-direction:column;align-items:center;padding:16px 0 4px;border-top:1px solid var(--silver);margin-top:10px;">
+      <button class="mic-btn" id="notes-mic-btn"
+        onmousedown="startNotesMic()" onmouseup="stopNotesMic()" onmouseleave="stopNotesMic()"
+        ontouchstart="e=arguments[0];e.preventDefault();startNotesMic()" ontouchend="stopNotesMic()"
+        title="Hold to speak, release to add note">
+        🎤
+      </button>
+      <div class="mic-hint" id="notes-mic-hint">Hold to speak, release to add</div>
+      <div class="mic-transcript" id="notes-mic-transcript"></div>
+    </div>
   </div>
 
   <!-- Review button -->
@@ -1363,18 +1366,16 @@ function stopListening() {
 }
 
 // Notes mic — separate one-shot recognition for the notes field
-let notesListening    = false;
-let notesRecognition  = null;
-
-function toggleNotesMic() {
-  notesListening ? stopNotesMic() : startNotesMic();
-}
+let notesListening      = false;
+let notesRecognition    = null;
+let notesPending        = '';
+let notesWantToStop     = false;
+let notesFallbackTimer  = null;
 
 function startNotesMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast('Voice not available in this browser', 'err'); return; }
-  const btn = document.getElementById('notes-mic-btn');
-  const ta  = document.getElementById('additional-notes');
+  if (!SR || notesListening) return;
+  const ta = document.getElementById('additional-notes');
 
   notesRecognition                = new SR();
   notesRecognition.lang           = 'en-US';
@@ -1385,28 +1386,56 @@ function startNotesMic() {
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const r = e.results[i];
       if (r.isFinal) {
-        const t = r[0].transcript.trim();
-        if (t) ta.value = ta.value ? ta.value + '\n' + t : t;
+        notesPending += (notesPending ? ' ' : '') + r[0].transcript.trim();
+        document.getElementById('notes-mic-transcript').textContent = notesPending;
+        if (notesWantToStop) {
+          clearTimeout(notesFallbackTimer);
+          try { notesRecognition.stop(); } catch(e) {}
+        }
       }
     }
   };
-  notesRecognition.onerror = (e) => { if (e.error !== 'no-speech') stopNotesMic(); };
-  notesRecognition.onend   = () => { if (notesListening) { try { notesRecognition.start(); } catch(e) {} } };
 
-  notesListening = true;
+  notesRecognition.onerror = (e) => { if (e.error !== 'no-speech') notesWantToStop = true; };
+
+  notesRecognition.onend = () => {
+    clearTimeout(notesFallbackTimer);
+    if (notesPending) {
+      const ta = document.getElementById('additional-notes');
+      ta.value = ta.value ? ta.value + '\n' + notesPending : notesPending;
+      notesPending = '';
+    }
+    document.getElementById('notes-mic-transcript').textContent = '';
+    document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
+    const btn = document.getElementById('notes-mic-btn');
+    btn.classList.remove('listening');
+    btn.textContent = '🎤';
+    notesListening  = false;
+    notesWantToStop = false;
+  };
+
+  notesPending    = '';
+  notesWantToStop = false;
+  notesListening  = true;
+  clearTimeout(notesFallbackTimer);
   notesRecognition.start();
-  btn.innerHTML         = '⏹ Stop Notes Mic';
-  btn.style.color       = 'var(--red)';
-  btn.style.borderColor = 'var(--red)';
+  const btn = document.getElementById('notes-mic-btn');
+  btn.classList.add('listening');
+  btn.textContent = '🔴';
+  document.getElementById('notes-mic-hint').textContent = 'Speaking… release when done';
+  document.getElementById('notes-mic-transcript').textContent = '';
 }
 
 function stopNotesMic() {
-  notesListening = false;
-  try { notesRecognition.stop(); } catch(e) {}
-  const btn             = document.getElementById('notes-mic-btn');
-  btn.innerHTML         = '🎤 Dictate Notes';
-  btn.style.color       = 'var(--slate)';
-  btn.style.borderColor = 'var(--silver)';
+  if (!notesListening) return;
+  notesWantToStop = true;
+  if (notesPending) {
+    try { notesRecognition.stop(); } catch(e) {}
+  } else {
+    notesFallbackTimer = setTimeout(() => {
+      try { notesRecognition.stop(); } catch(e) {}
+    }, 300);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
