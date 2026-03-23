@@ -1297,19 +1297,23 @@ function initSpeech() {
       const r = e.results[i];
       if (r.isFinal) {
         pendingTranscript += (pendingTranscript ? ' ' : '') + r[0].transcript.trim();
-        // Show confirmed text only — no interim, no dots
         document.getElementById('mic-transcript').textContent = pendingTranscript;
+        // If button already released, stop immediately now that we have final text
+        if (wantToStop) {
+          clearTimeout(stopFallbackTimer);
+          try { recognition.stop(); } catch(e) {}
+        }
       }
     }
   };
 
   recognition.onerror = (e) => {
-    if (e.error === 'no-speech') return; // ignore silence — keep holding
-    if (e.error === 'not-allowed') { stopListening(); toast('Microphone permission denied', 'err'); }
+    if (e.error === 'no-speech') return;
+    if (e.error === 'not-allowed') { wantToStop = true; toast('Microphone permission denied', 'err'); }
   };
 
   recognition.onend = () => {
-    // Only fires when we explicitly call stop() on button release
+    clearTimeout(stopFallbackTimer);
     if (pendingTranscript) {
       addLine(pendingTranscript);
       pendingTranscript = '';
@@ -1320,32 +1324,42 @@ function initSpeech() {
     btn.textContent = '🎤';
     document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
     isListening = false;
-    buttonHeld = false;
+    buttonHeld  = false;
+    wantToStop  = false;
   };
 }
+
+let wantToStop = false;
+let stopFallbackTimer = null;
 
 function startListening() {
   if (!recognition || isListening) return;
   pendingTranscript = '';
-  buttonHeld = true;
+  buttonHeld  = true;
+  wantToStop  = false;
   isListening = true;
+  clearTimeout(stopFallbackTimer);
   try { recognition.start(); } catch(e) {}
   const btn = document.getElementById('mic-btn');
   btn.classList.add('listening');
   btn.textContent = '🔴';
   document.getElementById('mic-hint').textContent = 'Speaking… release when done';
   document.getElementById('mic-transcript').textContent = '';
-
 }
 
 function stopListening() {
   if (!isListening) return;
   buttonHeld = false;
-  // 800ms delay — gives browser time to finalize any audio still processing
-  // so nothing gets cut off when button is released right after speaking
-  setTimeout(() => {
+  wantToStop = true;
+  // Stop immediately if we already have finalized text,
+  // otherwise wait up to 300ms for the last word to finalize
+  if (pendingTranscript) {
     try { recognition.stop(); } catch(e) {}
-  }, 800);
+  } else {
+    stopFallbackTimer = setTimeout(() => {
+      try { recognition.stop(); } catch(e) {}
+    }, 300);
+  }
 }
 
 // Notes mic — separate one-shot recognition for the notes field
