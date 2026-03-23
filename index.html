@@ -289,6 +289,19 @@ h1, h2, .label {
 }
 .line-del:hover { color: var(--red); }
 
+.line-item.changed {
+  background: var(--amber-lt);
+  border-radius: 6px;
+  margin: 2px -4px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.line-item.changed .line-num {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: var(--white);
+}
+
 .empty-lines {
   text-align: center;
   padding: 28px 16px;
@@ -893,6 +906,7 @@ let lines      = [];          // array of strings
 let isListening = false;
 let recognition = null;
 let pendingTranscript = ''; // accumulated text while button is held
+let changedIndices = new Set();
 let buttonHeld = false;       // true while user is physically holding the button
 let orgId        = null; // stored after login for use in createCostItem
 let costCodeId   = '22PEaNuVctaf'; // "Uncategorized" cost code — hardcoded
@@ -1170,30 +1184,33 @@ async function reviewWithAI() {
         max_tokens: 1500,
         messages: [{
           role: 'user',
-          content: `You are a construction scope editor for Elite Construction + Remodeling in Spokane, WA.
+          content: `You are a light proofreader for construction scope lines dictated by a Russian-accented contractor at Elite Construction + Remodeling in Spokane, WA.
 
-Fix ONLY spelling, grammar, and standard industry phrasing. Do NOT change meaning or reorder anything.
+Your job is MINIMAL correction only. The contractor wants his exact words preserved.
 
-KEY LANGUAGE RULES:
-- Say "Owner" not "I" or "customer" or "homeowner" — e.g. "Owner to pay electrician directly"
-- "owner provided" not "on provided" / "customer provided" / "homeowner provided"
-- "furnish and install" not "supply and install"
-- "remove and replace" not "take out and put in"
-- Title case each scope line (capitalize each word)
-- No trailing periods on scope lines
-- Notes lines stay lowercase after the dash
+ONLY fix:
+- Obvious speech-to-text mishearing (e.g. "furnish install" → "furnish and install")
+- Clear missing small words ("and", "the", "of") swallowed by accent
+- Capitalization (title case each word)
+- "owner provided" when you hear "on provided" / "owner provide" / "homeowner provided"
 
-EXAMPLE SCOPE LINES:
-- Furnish and Install Shower Door
-- Install Owner Provided Vanity with Top
-- Demolition of Existing Tile Shower
-- Owner to Pay Electrician Directly for All Electrical Work
+DO NOT:
+- Reword sentences
+- Add words that weren't said
+- Change construction terms or product names
+- Change anything you are uncertain about
+- "Improve" phrasing — if it sounds fine, leave it exactly as-is
 
-EXAMPLE NOTES LINES:
-- Owner to pay electrician directly for all electrical work
-- Owner to pay plumber directly for all plumbing work
+When in doubt, leave it UNCHANGED.
 
-Return the scope lines as a numbered list (same count), then if additional notes were provided return them after a line that says exactly "ADDITIONAL NOTES:". No other commentary.
+EXAMPLE FIXES (only this conservative):
+- "furnish install shower door" → "Furnish and Install Shower Door"
+- "install on provided vanity" → "Install Owner Provided Vanity"
+- "remove replace tile" → "Remove and Replace Tile"
+
+DO NOT CHANGE lines that are already correct — return them exactly as given.
+
+Return ONLY a numbered list (exact same count). If additional notes provided, return them after a line that says exactly "ADDITIONAL NOTES:". No commentary.
 
 SCOPE LINES:
 ${numbered}${notesSection}`
@@ -1212,8 +1229,16 @@ ${numbered}${notesSection}`
       .filter(l => l.length > 0);
 
     if (cleaned.length === lines.length) {
+      changedIndices = new Set();
+      cleaned.forEach((line, i) => {
+        if (line.trim().toLowerCase() !== lines[i].trim().toLowerCase()) {
+          changedIndices.add(i);
+        }
+      });
       lines = cleaned;
       renderLines();
+      const n = changedIndices.size;
+      toast(n === 0 ? 'No changes needed ✓' : `${n} line${n > 1 ? 's' : ''} corrected — check highlighted`, 'ok');
     } else {
       toast('Scope line count mismatch — check manually', 'err');
     }
@@ -1221,8 +1246,6 @@ ${numbered}${notesSection}`
     if (parts[1] && notesVal) {
       document.getElementById('additional-notes').value = parts[1].trim();
     }
-
-    toast('Reviewed and cleaned ✓', 'ok');
 
   } catch(e) {
     toast('AI review failed: ' + e.message, 'err');
@@ -1243,6 +1266,11 @@ function deleteLine(i) {
 
 function updateLine(i, val) {
   lines[i] = val;
+  if (changedIndices.has(i)) {
+    changedIndices.delete(i);
+    const items = document.querySelectorAll('.line-item');
+    if (items[i]) items[i].classList.remove('changed');
+  }
 }
 
 function renderLines() {
@@ -1256,7 +1284,7 @@ function renderLines() {
   }
   document.getElementById('lines-edit-hint').classList.toggle('hidden', lines.length === 0);
   el.innerHTML = lines.map((line, i) => `
-    <li class="line-item">
+    <li class="line-item${changedIndices.has(i) ? ' changed' : ''}">
       <div class="line-num">${i + 1}</div>
       <textarea class="line-text" rows="1" placeholder="Edit this line..."
         oninput="autoResize(this); updateLine(${i}, this.value)"
