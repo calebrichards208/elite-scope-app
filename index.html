@@ -1256,6 +1256,7 @@ function showExhibitBanner() {
     bannerText.textContent = `Existing exhibits: ${existing}. What do you want to do?`;
 
     // Build buttons — one per existing exhibit to load, plus "New Exhibit X"
+    const lastLetter = existingLetters[existingLetters.length - 1];
     let btns = existingExhibits.map(e =>
       `<button class="exhibit-btn" onclick="loadExhibit('${e.letter}')">Load ${e.name}</button>`
     ).join('');
