@@ -1161,7 +1161,7 @@ async function pickJob(idx) {
       organization: {
         $: { id: orgId },
         costItems: {
-          $: { where: [['job', 'id'], '=', selectedJob.id] },
+          $: { where: [['job', 'id'], '=', selectedJob.id], size: 500 },
           nodes: {
             id:        {},
             name:      {},
@@ -1217,6 +1217,27 @@ async function pickJob(idx) {
   document.getElementById('dot-2').classList.add('active');
 }
 
+function nextExhibitLetter(existingLetters) {
+  // Single letters A-Z first, then AA, AB... AZ, BA... ZZ etc
+  const sorted = [...existingLetters].sort();
+  if (sorted.length === 0) return 'A';
+  const last = sorted[sorted.length - 1];
+
+  // Increment like spreadsheet columns
+  const chars = last.split('');
+  let i = chars.length - 1;
+  while (i >= 0) {
+    if (chars[i] < 'Z') {
+      chars[i] = String.fromCharCode(chars[i].charCodeAt(0) + 1);
+      return chars.join('');
+    }
+    chars[i] = 'A';
+    i--;
+  }
+  // All chars were Z — prepend A (Z → AA, ZZ → AAA etc)
+  return 'A' + chars.join('');
+}
+
 function showExhibitBanner() {
   const banner     = document.getElementById('exhibit-banner');
   const bannerText = document.getElementById('exhibit-banner-text');
@@ -1229,9 +1250,9 @@ function showExhibitBanner() {
     currentExhibit = 'A';
   } else {
     // Determine next letter
-    const lastLetter = existingExhibits[existingExhibits.length - 1].letter;
-    const nextLetter = String.fromCharCode(lastLetter.charCodeAt(0) + 1);
-    const existing   = existingExhibits.map(e => e.letter).join(', ');
+    const existingLetters = existingExhibits.map(e => e.letter);
+    const nextLetter      = nextExhibitLetter(existingLetters);
+    const existing        = existingLetters.join(', ');
     bannerText.textContent = `Existing exhibits: ${existing}. What do you want to do?`;
 
     // Build buttons — one per existing exhibit to load, plus "New Exhibit X"
@@ -1264,8 +1285,7 @@ function loadExhibit(letter) {
   if (!exhibit) return;
 
   // Determine what exhibit this will become when posted
-  const lastLetter   = existingExhibits[existingExhibits.length - 1].letter;
-  const nextLetter   = String.fromCharCode(lastLetter.charCodeAt(0) + 1);
+  const nextLetter   = nextExhibitLetter(existingExhibits.map(e => e.letter));
   currentExhibit     = nextLetter;
 
   // Load lines from selected exhibit — all items except the price line (last one with unitPrice)
@@ -1655,14 +1675,21 @@ async function submitToJobTread() {
 
   try {
     // ── Create Cost Group for this exhibit ──
+    // positionAfter: last exhibit group ID so it goes below last exhibit
+    // but above NOTES (NOTES has no positionAfter so it stays at end)
+    const lastExhibitGroupId = existingExhibits.length > 0
+      ? existingExhibits[existingExhibits.length - 1].id
+      : null;
+    const groupParams = {
+      jobId:        selectedJob.id,
+      name:         exhibitName,
+      showChildren: true
+    };
+    if (lastExhibitGroupId) groupParams.positionAfter = lastExhibitGroupId;
     const groupResult = await jtPost({
       $: { grantKey },
       createCostGroup: {
-        $: {
-          jobId:        selectedJob.id,
-          name:         exhibitName,
-          showChildren: true
-        },
+        $: groupParams,
         createdCostGroup: { id: {}, name: {} }
       }
     });
@@ -1756,17 +1783,53 @@ async function submitToJobTread() {
     btn.innerHTML = `✓ ${exhibitName} posted!`;
     toast(`${exhibitName} posted! Open JobTread to generate the proposal.`, 'ok');
 
-    // Reset after a beat
-    setTimeout(() => {
+    // Re-fetch exhibits so banner updates with new exhibit included
+    setTimeout(async () => {
       lines = [];
       renderLines();
       document.getElementById('total-price').value = '';
+      document.getElementById('additional-notes').value = '';
       btn.classList.remove('success-state');
       btn.disabled = false;
-      btn.textContent = 'Post to JobTread';
-      // Reset progress
+      btn.textContent = 'Post Exhibit to JobTread';
       document.getElementById('dot-2').classList.remove('done');
       document.getElementById('dot-3').classList.remove('active');
+
+      // Refresh exhibit state from JobTread
+      try {
+        const data = await jtPost({
+          $: { grantKey },
+          organization: {
+            $: { id: orgId },
+            costItems: {
+              $: { where: [['job', 'id'], '=', selectedJob.id], size: 500 },
+              nodes: {
+                id:        {},
+                name:      {},
+                unitPrice: {},
+                costGroup: { id: {}, name: {} }
+              }
+            }
+          }
+        });
+        const items = data?.organization?.costItems?.nodes || [];
+        const notesItem = items.find(i => i.name === 'NOTES' && !i.costGroup);
+        if (notesItem) existingNotesId = notesItem.id;
+        const exhibitMap = {};
+        items.forEach(item => {
+          if (item.costGroup?.name?.startsWith('Exhibit ')) {
+            const letter = item.costGroup.name.replace('Exhibit ', '').trim();
+            if (!exhibitMap[letter]) {
+              exhibitMap[letter] = { id: item.costGroup.id, name: item.costGroup.name, letter, items: [] };
+            }
+            exhibitMap[letter].items.push(item);
+          }
+        });
+        existingExhibits = Object.values(exhibitMap).sort((a, b) => a.letter.localeCompare(b.letter));
+        showExhibitBanner();
+      } catch(e) {
+        console.warn('Could not refresh exhibits:', e.message);
+      }
     }, 2800);
 
   } catch (err) {
