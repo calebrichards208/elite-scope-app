@@ -1393,7 +1393,12 @@ ${numbered}${notesSection}`
     }
 
     if (parts[1] && notesVal) {
-      document.getElementById('additional-notes').value = parts[1].trim();
+      // Strip any leading dashes AI may have added — textarea stores plain text only
+      const cleanedNotes = parts[1].trim().split('\n')
+        .map(l => l.trim().replace(/^-\s*/, ''))
+        .filter(Boolean)
+        .join('\n');
+      document.getElementById('additional-notes').value = cleanedNotes;
     }
 
   } catch(e) {
