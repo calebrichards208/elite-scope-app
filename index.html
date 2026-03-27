@@ -1341,10 +1341,13 @@ RULES:
 3. Apply these exact phrase corrections:
    - Any variation of "furnish and install" → always "Furnish and Install"
    - "install on provided" / "install owner provide" / "install homeowner provided" → "Install Owner Provided"
+   - A line starting with "Owner Provided" (no Install at the front) → add "Install" at the start: "Install Owner Provided ..."
    - "owner to pay electrician" / "I want to pay electrician" / "owner pay electrician" → "Owner to Pay Electrician Directly"
    - "owner to pay plumber" / "I want to pay plumber" / "owner pay plumber" → "Owner to Pay Plumber Directly"
    - "remove and replace" / "remove replace" → "Remove and Replace"
    - "demo" / "demolish" → keep as-is (do not expand)
+   - "LMP" → "LVP" (speech-to-text mishearing of flooring product name)
+   - "LBP", "LBV", "LVB" or similar → "LVP" (all are likely mishearings of LVP flooring)
 4. DO NOT reword, restructure, or add any words that weren't said
 5. DO NOT change product names, brand names, or specific measurements
 6. When in doubt — leave it exactly as-is
