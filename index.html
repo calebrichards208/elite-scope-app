@@ -1642,7 +1642,7 @@ async function submitToJobTread() {
       name:         exhibitName,
       showChildren: true
     };
-    if (lastExhibitGroupId) groupParams.positionAfter = { id: lastExhibitGroupId };
+    if (lastExhibitGroupId) groupParams.positionAfter = { id: lastExhibitGroupId, type: 'costGroup' };
     const groupResult = await jtPost({
       $: { grantKey },
       createCostGroup: {
