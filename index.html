@@ -1333,33 +1333,57 @@ async function reviewWithAI() {
         max_tokens: 1500,
         messages: [{
           role: 'user',
-          content: `You are a light proofreader for construction scope lines dictated by a Russian-accented contractor at Elite Construction + Remodeling in Spokane, WA.
+          content: `You are proofreading construction scope lines for Elite Construction + Remodeling (Spokane, WA). Lines are voice-dictated by a Russian-accented contractor.
 
-Your job is MINIMAL correction only. The contractor wants his exact words preserved.
+RULES:
+1. Title case every scope line (capitalize each word)
+2. Fix obvious speech-to-text errors only — missing small words like "and", "the", "of"
+3. Apply these exact phrase corrections:
+   - Any variation of "furnish and install" → always "Furnish and Install"
+   - "install on provided" / "install owner provide" / "install homeowner provided" → "Install Owner Provided"
+   - "owner to pay electrician" / "I want to pay electrician" / "owner pay electrician" → "Owner to Pay Electrician Directly"
+   - "owner to pay plumber" / "I want to pay plumber" / "owner pay plumber" → "Owner to Pay Plumber Directly"
+   - "remove and replace" / "remove replace" → "Remove and Replace"
+   - "demo" / "demolish" → keep as-is (do not expand)
+4. DO NOT reword, restructure, or add any words that weren't said
+5. DO NOT change product names, brand names, or specific measurements
+6. When in doubt — leave it exactly as-is
 
-ONLY fix:
-- Obvious speech-to-text mishearing (e.g. "furnish install" → "furnish and install")
-- Clear missing small words ("and", "the", "of") swallowed by accent
-- Capitalization (title case each word)
-- "owner provided" when you hear "on provided" / "owner provide" / "homeowner provided"
+CORRECT EXAMPLES (these are already right — do not change them):
+- Furnish and Install Shower Door
+- Furnish and Install New Toilet
+- Furnish and Install Dual Action Shower Valve and Shower Head
+- Furnish and Install Acrylic Shower Wall Panels
+- Furnish & Install Laminate Countertop
+- Furnish and Install Owner Provided Vanity with Top and Sink
+- Install Owner Provided Vanity with Top and Sink
+- Install Owner Provided LVP Flooring
+- Install Owner Provided Glass Shower Door
+- Install Blocking for Secure Fastening of Towel Bars, Grab Bars, TP Holder, Shower Door, Robe Hook, Mirror
+- Install Duct from Bathroom Exhaust Fan to Nearest Soffit
+- Install Bathroom Vent Fan/Light Centered Over Shower
+- Install 60x32 Right Hand White Shower Base in the Bathroom
+- Install New Moen Rough-In Shower Valve and Rough-In Shower Head
+- Install New Moen Shower Valve Trim and Shower Head (Chrome)
+- Install Green Board on Shower Surround
+- Install Water Lines for Shower, Sink, and Toilet
+- Frame Opening for Recessed Niche
+- Frame Around the Furnace to Create Utility Room
+- Finish Framing Around the Duct Work and Beams on Ceiling
+- Demolition of Existing Tile Shower
+- Owner to Pay Electrician Directly for All Electrical Work
+- Owner to Pay Plumber Directly for All Plumbing Work
+- Paint Walls and Ceiling Two Coats
+- Remove and Replace Drywall
+NOTE: Lines with multi-line descriptions (e.g. "Frame the following:\n- item 1\n- item 2") should be kept exactly as-is including line breaks.
 
-DO NOT:
-- Reword sentences
-- Add words that weren't said
-- Change construction terms or product names
-- Change anything you are uncertain about
-- "Improve" phrasing — if it sounds fine, leave it exactly as-is
+NOTES lines (after ADDITIONAL NOTES:) — sentence case only, no title case.
+CORRECT NOTES EXAMPLES:
+- Owner to pay electrician directly for all electrical work
+- Owner to pay plumber directly for all plumbing work
+- Building permit not included in the price
 
-When in doubt, leave it UNCHANGED.
-
-EXAMPLE FIXES (only this conservative):
-- "furnish install shower door" → "Furnish and Install Shower Door"
-- "install on provided vanity" → "Install Owner Provided Vanity"
-- "remove replace tile" → "Remove and Replace Tile"
-
-DO NOT CHANGE lines that are already correct — return them exactly as given.
-
-Return ONLY a numbered list (exact same count). If additional notes provided, return them after a line that says exactly "ADDITIONAL NOTES:". No commentary.
+Return ONLY a numbered list (exact same count as input). If additional notes were provided, return them after a line that says exactly "ADDITIONAL NOTES:". No preamble, no commentary.
 
 SCOPE LINES:
 ${numbered}${notesSection}`
