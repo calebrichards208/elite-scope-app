@@ -156,24 +156,7 @@ h1, h2, .label {
   flex-shrink: 0;
 }
 .step-badge.done { background: var(--green); }
-.exhibit-btn {
-  flex: 1;
-  padding: 10px 8px;
-  border: none;
-  background: var(--white);
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--navy);
-  cursor: pointer;
-  text-transform: uppercase;
-  transition: background 0.15s;
-  border-right: 1px solid var(--amber);
-}
-.exhibit-btn:last-child { border-right: none; }
-.exhibit-btn:hover { background: var(--amber-lt); }
-.exhibit-btn.active { background: var(--amber); color: var(--white); }
+
 .step-title {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 16px;
@@ -772,14 +755,14 @@ h1, h2, .label {
         </div>
         <button class="change-btn" onclick="changeJob()">Change</button>
       </div>
-      <!-- Exhibit banner — shown when existing exhibits found -->
-      <div id="exhibit-banner" class="hidden" style="margin-top:12px;border-radius:8px;overflow:hidden;border:1.5px solid var(--amber)">
-        <div style="padding:8px 14px;background:var(--amber-lt);font-size:12px;color:var(--amber-dk);font-weight:500;line-height:1.5" id="exhibit-banner-text"></div>
-        <div style="display:flex;border-top:1px solid var(--amber)" id="exhibit-buttons"></div>
+      <!-- Exhibit status strip -->
+      <div id="exhibit-banner" class="hidden" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--silver)">
+        <div id="exhibit-banner-text" style="font-size:12px;color:var(--slate);font-weight:500"></div>
+        <button onclick="clearAllLines()" style="font-size:11px;font-family:'DM Sans',sans-serif;color:var(--slate-lt);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;white-space:nowrap" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--slate-lt)'">Clear all</button>
       </div>
       <!-- Loading indicator while checking for exhibits -->
       <div id="exhibit-loading" class="hidden" style="margin-top:10px;text-align:center;font-size:12px;color:var(--slate-lt);padding:6px">
-        Checking for existing exhibits…
+        Loading…
       </div>
     </div>
   </div>
@@ -940,7 +923,7 @@ let changedIndices = new Set();
 let buttonHeld = false;       // true while user is physically holding the button
 let orgId        = null; // stored after login for use in createCostItem
 let costCodeId   = '22PEaNuVctaf'; // "Uncategorized" cost code — hardcoded
-let costTypeId   = '22PU7gmNf9aq'; // "General" cost type — hardcoded
+let costTypeId   = '22PU7gmNf9aq'; // "Scope App" cost type — hardcoded
 let anthropicKey = '';   // Anthropic API key for review pass
 
 // ════════════════════════════════════════════════════════════════
@@ -1247,74 +1230,39 @@ function nextExhibitLetter(existingLetters) {
 }
 
 function showExhibitBanner() {
-  const banner     = document.getElementById('exhibit-banner');
   const bannerText = document.getElementById('exhibit-banner-text');
-  const btnRow     = document.getElementById('exhibit-buttons');
 
   if (existingExhibits.length === 0) {
-    // Fresh job — no choice needed, just show which exhibit we'll create
-    bannerText.textContent = 'No exhibits yet — will create Exhibit A';
-    btnRow.innerHTML = '';
+    // Fresh job — Exhibit A, blank slate
     currentExhibit = 'A';
+    bannerText.textContent = 'New job — creating Exhibit A';
+    show('exhibit-banner');
   } else {
-    // Determine next letter
+    // Auto-load most recent exhibit, set next letter
     const existingLetters = existingExhibits.map(e => e.letter);
+    const lastLetter      = existingLetters[existingLetters.length - 1];
     const nextLetter      = nextExhibitLetter(existingLetters);
-    const existing        = existingLetters.join(', ');
-    bannerText.textContent = `Existing exhibits: ${existing}. What do you want to do?`;
+    currentExhibit        = nextLetter;
 
-    // Build buttons — one per existing exhibit to load, plus "New Exhibit X"
-    const lastLetter = existingLetters[existingLetters.length - 1];
-    let btns = existingExhibits.map(e =>
-      `<button class="exhibit-btn" onclick="loadExhibit('${e.letter}')">Load ${e.name}</button>`
-    ).join('');
-    btns += `<button class="exhibit-btn" onclick="startNewExhibit('${nextLetter}')">+ New Exhibit ${nextLetter}</button>`;
-    btnRow.innerHTML = btns;
+    const lastExhibit = existingExhibits[existingExhibits.length - 1];
+    const priceItem   = lastExhibit.items.find(i => i.unitPrice > 0);
+    lines = lastExhibit.items.map(i => i.name);
+    renderLines();
+    if (priceItem) document.getElementById('total-price').value = priceItem.unitPrice;
 
-    // Default to loading most recent
-    loadExhibit(lastLetter);
+    bannerText.textContent = `Exhibit ${lastLetter} loaded — posting as Exhibit ${nextLetter}`;
+    show('exhibit-banner');
+    toast(`Exhibit ${lastLetter} loaded`, 'ok');
   }
-
-  show('exhibit-banner');
 }
 
-function startNewExhibit(letter) {
-  currentExhibit = letter;
+function clearAllLines() {
+  if (!confirm('Clear all lines and start fresh?')) return;
   lines = [];
+  document.getElementById('total-price').value = '';
   renderLines();
-  // Highlight active button
-  document.querySelectorAll('.exhibit-btn').forEach(b => {
-    b.classList.toggle('active', b.textContent.includes(`New Exhibit ${letter}`));
-  });
-  toast(`Starting Exhibit ${letter} — scope is blank`, 'ok');
-}
-
-function loadExhibit(letter) {
-  const exhibit = existingExhibits.find(e => e.letter === letter);
-  if (!exhibit) return;
-
-  // Determine what exhibit this will become when posted
-  const nextLetter   = nextExhibitLetter(existingExhibits.map(e => e.letter));
-  currentExhibit     = nextLetter;
-
-  // Load lines from selected exhibit — all items except the price line (last one with unitPrice)
-  // Actually load ALL lines so Sergey can see scope + knows the price
-  const sortedItems = [...exhibit.items];
-  const priceItem   = sortedItems.find(i => i.unitPrice > 0);
-  lines = sortedItems.map(i => i.name);
-  renderLines();
-
-  // Set price field if there's a price item
-  if (priceItem) {
-    document.getElementById('total-price').value = priceItem.unitPrice;
-  }
-
-  // Highlight active button
-  document.querySelectorAll('.exhibit-btn').forEach(b => {
-    b.classList.toggle('active', b.textContent.includes(`Load Exhibit ${letter}`));
-  });
-
-  toast(`Exhibit ${letter} loaded — editing as Exhibit ${nextLetter}`, 'ok');
+  document.getElementById('exhibit-banner-text').textContent =
+    `Exhibit ${currentExhibit} — blank scope`;
 }
 
 function changeJob() {
@@ -1694,7 +1642,7 @@ async function submitToJobTread() {
       name:         exhibitName,
       showChildren: true
     };
-    if (lastExhibitGroupId) groupParams.positionAfter = lastExhibitGroupId;
+    if (lastExhibitGroupId) groupParams.positionAfter = { id: lastExhibitGroupId };
     const groupResult = await jtPost({
       $: { grantKey },
       createCostGroup: {
@@ -1843,7 +1791,14 @@ async function submitToJobTread() {
           }
         });
         existingExhibits = Object.values(exhibitMap).sort((a, b) => a.letter.localeCompare(b.letter));
-        showExhibitBanner();
+        // After posting, show updated status — lines already cleared in reset above
+        const newLetters = existingExhibits.map(e => e.letter);
+        const newNext    = nextExhibitLetter(newLetters);
+        currentExhibit   = newNext;
+        const bannerText = document.getElementById('exhibit-banner-text');
+        const lastPosted = newLetters[newLetters.length - 1];
+        bannerText.textContent = `Exhibit ${lastPosted} posted — ready for Exhibit ${newNext}`;
+        show('exhibit-banner');
       } catch(e) {
         console.warn('Could not refresh exhibits:', e.message);
       }
