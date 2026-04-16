@@ -9,7 +9,7 @@
 
 <!--
   ═══════════════════════════════════════════════════════════════════
-  ELITE CONSTRUCTION + REMODELING — SCOPE DICTATION TOOL v1.0
+  ELITE CONSTRUCTION + REMODELING — SCOPE DICTATION TOOL v1.1
   ═══════════════════════════════════════════════════════════════════
 
   PURPOSE:
@@ -230,19 +230,83 @@ h1, h2, .label {
 
 /* ── Lines list ───────────────────────────────────────────────── */
 .lines-list { list-style: none; }
+
 .line-item {
+  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   padding: 10px 0;
   border-bottom: 1px solid var(--silver);
   animation: slideIn 0.18s ease;
+  transition: background 0.1s, border-top 0.1s;
 }
 .line-item:last-child { border-bottom: none; }
+
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ── Drag handle ──────────────────────────────────────────────── */
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  width: 16px;
+  cursor: grab;
+  color: var(--silver);
+  font-size: 14px;
+  padding: 0;
+  margin-top: 6px;
+  touch-action: none;
+  user-select: none;
+  flex-shrink: 0;
+  transition: color 0.15s;
+  letter-spacing: -1px;
+}
+.drag-handle:hover { color: var(--slate-lt); }
+.drag-handle:active { cursor: grabbing; color: var(--amber); }
+
+/* ── Insert above button ──────────────────────────────────────── */
+.insert-above-btn {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: -11px;
+  transform: translateX(-50%);
+  background: var(--amber);
+  color: white;
+  border: 2px solid var(--white);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 5;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(217,119,6,0.4);
+  padding: 0;
+}
+.line-item:hover .insert-above-btn,
+.line-item:focus-within .insert-above-btn {
+  display: flex;
+}
+
+/* ── Drag states ──────────────────────────────────────────────── */
+.line-item.dragging {
+  opacity: 0.35;
+  background: var(--amber-lt);
+  border-radius: 6px;
+}
+.line-item.drag-target {
+  border-top: 2.5px solid var(--amber) !important;
+  padding-top: 9px;
+}
+
 .line-num {
   min-width: 22px;
   height: 22px;
@@ -776,7 +840,7 @@ h1, h2, .label {
 
     <ul class="lines-list" id="lines-list"></ul>
     <div id="lines-edit-hint" class="hidden" style="font-size:12px;color:var(--slate-lt);text-align:center;padding:4px 0 8px">
-      Tap any line to edit before posting
+      Tap any line to edit · tap <strong>+</strong> to insert above · drag <strong>⠿</strong> to reorder
     </div>
 
     <!-- Mic zone -->
@@ -892,7 +956,7 @@ h1, h2, .label {
     </div>
 
     <button class="settings-save-btn" onclick="saveSettings()">Save Settings</button>
-    <div style="text-align:center;font-size:12px;color:var(--slate-lt);margin: 8px 0 4px">App version 1.0 — Elite Construction + Remodeling</div>
+    <div style="text-align:center;font-size:12px;color:var(--slate-lt);margin: 8px 0 4px">App version 1.1 — Elite Construction + Remodeling</div>
     <button class="reset-btn" onclick="resetApp()">Reset &amp; Clear All Data</button>
   </div>
 </div>
@@ -909,22 +973,31 @@ h1, h2, .label {
 // ════════════════════════════════════════════════════════════════
 let grantKey   = '';
 let proxyUrl   = '';
-let allJobs    = [];          // all jobs loaded from JT
-let shownJobs  = [];          // currently displayed (after filter)
-let selectedJob   = null;     // { id, name, number, customer }
-let lines         = [];       // array of strings
-let isListening   = false;
-let currentExhibit = null;    // 'A', 'B', 'C'... — which exhibit we're building
-let existingExhibits = [];    // exhibit cost groups found on this job [{id, name, letter}]
-let existingNotesId = null;   // id of existing NOTES cost item if any
+let allJobs    = [];
+let shownJobs  = [];
+let selectedJob    = null;
+let lines          = [];
+let isListening    = false;
+let currentExhibit = null;
+let existingExhibits = [];
+let existingNotesId  = null;
 let recognition = null;
-let pendingTranscript = ''; // accumulated text while button is held
+let pendingTranscript = '';
 let changedIndices = new Set();
-let buttonHeld = false;       // true while user is physically holding the button
-let orgId        = null; // stored after login for use in createCostItem
-let costCodeId   = '22PEaNuVctaf'; // "Uncategorized" cost code — hardcoded
-let costTypeId   = '22PU7gmNf9aq'; // "Scope App" cost type — hardcoded
-let anthropicKey = '';   // Anthropic API key for review pass
+let buttonHeld = false;
+let orgId        = null;
+let costCodeId   = '22PEaNuVctaf';
+let costTypeId   = '22PU7gmNf9aq';
+let anthropicKey = '';
+
+// ── Smart dictation: track which textarea is focused ──
+let activeLine         = null; // { index, el } — currently focused scope line
+let capturedActiveLine = null; // snapped at mic-press time, before blur fires
+
+// ── Drag & drop ──
+let dragSrcIndex = null; // HTML5 desktop drag
+let touchDrag    = null; // touch drag state
+
 
 // ════════════════════════════════════════════════════════════════
 //  BOOT
@@ -997,9 +1070,7 @@ function resetApp() {
 }
 
 // ════════════════════════════════════════════════════════════════
-//  ── JT API ──  JobTread Pave Query API calls
-//  All API calls go through here. Field names match JT's schema.
-//  Docs: https://api.jobtread.com
+//  ── JT API ──
 // ════════════════════════════════════════════════════════════════
 async function jtPost(query) {
   const url = proxyUrl || 'https://api.jobtread.com/pave';
@@ -1017,22 +1088,18 @@ async function jtPost(query) {
   return data;
 }
 
-// Load jobs list
 async function loadJobs() {
   const listEl = document.getElementById('job-list');
   listEl.innerHTML = '<div class="job-list-status">Loading jobs…</div>';
 
   try {
-    // ── JT API: step 1 — get org ID from currentGrant ──
     const grantData = await jtPost({
       $: { grantKey },
       currentGrant: {
         user: {
           memberships: {
             nodes: {
-              organization: {
-                id: {}
-              }
+              organization: { id: {} }
             }
           }
         }
@@ -1041,21 +1108,13 @@ async function loadJobs() {
     orgId = grantData?.currentGrant?.user?.memberships?.nodes?.[0]?.organization?.id;
     if (!orgId) throw new Error('Could not find organization from grant key');
 
-    // ── JT API: step 2 — load all jobs for that org, newest first ──
     const data = await jtPost({
       $: { grantKey },
       organization: {
         $: { id: orgId },
         jobs: {
-          $: {
-            sortBy: [{ field: 'createdAt', order: 'desc' }]
-          },
-          nodes: {
-            id:        {},
-            name:      {},
-            number:    {},
-            closedOn:  {}
-          }
+          $: { sortBy: [{ field: 'createdAt', order: 'desc' }] },
+          nodes: { id: {}, name: {}, number: {}, closedOn: {} }
         }
       }
     });
@@ -1075,9 +1134,6 @@ async function loadJobs() {
   }
 }
 
-// ── JT API: create one cost item (budget line) ──
-// Scope lines: name only, no price, no cost type — purely descriptive
-// Total line:  name + sellPrice — the one number on the proposal
 async function createCostItem(jobId, name, unitPrice, isTaxable = false, unitCost = null) {
   const params = { jobId, name, showQuantity: false, costCodeId, costTypeId };
   if (unitPrice)  params.unitPrice = parseFloat(unitPrice);
@@ -1087,10 +1143,7 @@ async function createCostItem(jobId, name, unitPrice, isTaxable = false, unitCos
     $: { grantKey },
     createCostItem: {
       $: params,
-      createdCostItem: {
-        id:   {},
-        name: {}
-      }
+      createdCostItem: { id: {}, name: {} }
     }
   });
 }
@@ -1130,7 +1183,6 @@ async function pickJob(idx) {
   hide('exhibit-banner');
   show('exhibit-loading');
 
-  // Reset exhibit state
   existingExhibits = [];
   existingNotesId  = null;
   currentExhibit   = null;
@@ -1138,7 +1190,6 @@ async function pickJob(idx) {
   renderLines();
 
   try {
-    // Fetch all cost items for this job — paginated (max 100 per page)
     let items = [];
     let page  = null;
     do {
@@ -1152,9 +1203,7 @@ async function pickJob(idx) {
             $: params,
             nextPage: {},
             nodes: {
-              id:        {},
-              name:      {},
-              unitPrice: {},
+              id: {}, name: {}, unitPrice: {},
               costGroup: { id: {}, name: {} }
             }
           }
@@ -1165,11 +1214,9 @@ async function pickJob(idx) {
       page  = data?.organization?.costItems?.nextPage || null;
     } while (page);
 
-    // Find NOTES item (no cost group)
     const notesItem = items.find(i => i.name === 'NOTES' && !i.costGroup);
     if (notesItem) existingNotesId = notesItem.id;
 
-    // Find exhibit cost groups, sort by letter
     const exhibitMap = {};
     items.forEach(item => {
       if (item.costGroup?.name?.startsWith('Exhibit ')) {
@@ -1185,11 +1232,9 @@ async function pickJob(idx) {
     hide('exhibit-loading');
 
     if (existingExhibits.length === 0) {
-      // No exhibits yet — start fresh with Exhibit A
       currentExhibit = 'A';
       showExhibitBanner();
     } else {
-      // Has exhibits — show options
       showExhibitBanner();
     }
 
@@ -1200,7 +1245,6 @@ async function pickJob(idx) {
     showExhibitBanner();
   }
 
-  // Update progress
   document.getElementById('badge-1').classList.add('done');
   document.getElementById('badge-1').textContent = '✓';
   document.getElementById('dot-1').classList.remove('active');
@@ -1209,12 +1253,9 @@ async function pickJob(idx) {
 }
 
 function nextExhibitLetter(existingLetters) {
-  // Single letters A-Z first, then AA, AB... AZ, BA... ZZ etc
   const sorted = [...existingLetters].sort();
   if (sorted.length === 0) return 'A';
-  const last = sorted[sorted.length - 1];
-
-  // Increment like spreadsheet columns
+  const last  = sorted[sorted.length - 1];
   const chars = last.split('');
   let i = chars.length - 1;
   while (i >= 0) {
@@ -1225,7 +1266,6 @@ function nextExhibitLetter(existingLetters) {
     chars[i] = 'A';
     i--;
   }
-  // All chars were Z — prepend A (Z → AA, ZZ → AAA etc)
   return 'A' + chars.join('');
 }
 
@@ -1233,12 +1273,10 @@ function showExhibitBanner() {
   const bannerText = document.getElementById('exhibit-banner-text');
 
   if (existingExhibits.length === 0) {
-    // Fresh job — Exhibit A, blank slate
     currentExhibit = 'A';
     bannerText.textContent = 'New job — creating Exhibit A';
     show('exhibit-banner');
   } else {
-    // Auto-load most recent exhibit, set next letter
     const existingLetters = existingExhibits.map(e => e.letter);
     const lastLetter      = existingLetters[existingLetters.length - 1];
     const nextLetter      = nextExhibitLetter(existingLetters);
@@ -1291,7 +1329,6 @@ function changeJob() {
 function addLine(raw) {
   let text = raw.trim();
   if (!text) return;
-  // Basic cleanup — capitalize first letter, remove trailing period
   text = text.charAt(0).toUpperCase() + text.slice(1);
   text = text.replace(/\.+$/, '');
   lines.push(text);
@@ -1299,6 +1336,244 @@ function addLine(raw) {
   if (lines.length === 1) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
+  }
+}
+
+// Insert a blank line above the given index and focus it
+function insertLineAbove(index) {
+  lines.splice(index, 0, '');
+  changedIndices = new Set([...changedIndices].map(i => i >= index ? i + 1 : i));
+  renderLines();
+  // Focus the new empty textarea so user can type or dictate immediately
+  const textareas = document.querySelectorAll('.line-text');
+  if (textareas[index]) {
+    textareas[index].focus();
+  }
+  if (lines.length === 1) {
+    document.getElementById('dot-2').classList.add('done');
+    document.getElementById('dot-3').classList.add('active');
+  }
+}
+
+// Reorder lines array: move item at fromIndex to toIndex
+function reorderLines(fromIndex, toIndex) {
+  if (fromIndex === toIndex) return;
+  const newLines = [...lines];
+  const [item] = newLines.splice(fromIndex, 1);
+  newLines.splice(toIndex, 0, item);
+  lines = newLines;
+  changedIndices.clear(); // clear highlights after reorder
+  renderLines();
+}
+
+function deleteLine(i) {
+  lines.splice(i, 1);
+  renderLines();
+  if (!lines.length) {
+    document.getElementById('dot-2').classList.remove('done');
+    document.getElementById('dot-3').classList.remove('active');
+  }
+}
+
+function updateLine(i, val) {
+  lines[i] = val;
+  if (changedIndices.has(i)) {
+    changedIndices.delete(i);
+    const items = document.querySelectorAll('.line-item');
+    if (items[i]) items[i].classList.remove('changed');
+  }
+}
+
+function renderLines() {
+  const el = document.getElementById('lines-list');
+  if (!lines.length) {
+    el.innerHTML = `<li class="empty-lines">
+      <span class="empty-icon">🎙</span>
+      Tap the mic below and dictate your first scope line
+    </li>`;
+    hide('lines-edit-hint');
+    return;
+  }
+  document.getElementById('lines-edit-hint').classList.remove('hidden');
+  el.innerHTML = lines.map((line, i) => `
+    <li class="line-item${changedIndices.has(i) ? ' changed' : ''}"
+        data-index="${i}"
+        ondragover="onDragOver(event,${i})"
+        ondrop="onDrop(event,${i})">
+      <button class="insert-above-btn" onclick="insertLineAbove(${i})" title="Insert line above">+</button>
+      <div class="drag-handle"
+           draggable="true"
+           ondragstart="onDragStart(event,${i})"
+           ondragend="onDragEnd(event)"
+           ontouchstart="onTouchDragStart(event,${i})"
+           title="Drag to reorder">⠿</div>
+      <div class="line-num">${i + 1}</div>
+      <textarea class="line-text" rows="1" placeholder="Edit this line..."
+        oninput="autoResize(this); updateLine(${i}, this.value)"
+        onblur="updateLine(${i}, this.value); clearActiveLine(${i})"
+        onfocus="setActiveLine(${i}, this)"
+      >${escHtml(line)}</textarea>
+      <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
+    </li>
+  `).join('');
+  el.querySelectorAll('.line-text').forEach(autoResize);
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
+// ════════════════════════════════════════════════════════════════
+//  SMART DICTATION — cursor-aware insertion
+// ════════════════════════════════════════════════════════════════
+
+// Called when a scope line textarea gains focus
+function setActiveLine(i, el) {
+  activeLine = { index: i, el };
+  document.getElementById('mic-hint').textContent = 'Hold mic to insert at cursor';
+}
+
+// Called on blur — delayed so mic mousedown can capture first
+function clearActiveLine(i) {
+  setTimeout(() => {
+    if (activeLine && activeLine.index === i) {
+      activeLine = null;
+      document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
+    }
+  }, 300);
+}
+
+// Insert dictated text at the current cursor position / selection
+function insertAtCursor(el, text) {
+  let insert = text.trim();
+  if (!insert) return;
+
+  const val   = el.value;
+  const start = (el.selectionStart != null) ? el.selectionStart : val.length;
+  const end   = (el.selectionEnd   != null) ? el.selectionEnd   : val.length;
+
+  // Capitalize if field is empty or inserting at position 0
+  if (val.trim() === '' || start === 0) {
+    insert = insert.charAt(0).toUpperCase() + insert.slice(1);
+  }
+  // Strip trailing period if inserting into empty field (same as addLine)
+  if (val.trim() === '') {
+    insert = insert.replace(/\.+$/, '');
+  }
+
+  if (start !== end) {
+    // Replace selected text
+    el.value = val.slice(0, start) + insert + val.slice(end);
+    el.selectionStart = el.selectionEnd = start + insert.length;
+  } else {
+    // Insert at cursor — add spaces as needed
+    const before       = val.slice(0, start);
+    const after        = val.slice(start);
+    const spaceBefore  = (before.length > 0 && !/\s$/.test(before)) ? ' ' : '';
+    const spaceAfter   = (after.length  > 0 && !/^\s/.test(after))  ? ' ' : '';
+    el.value = before + spaceBefore + insert + spaceAfter + after;
+    el.selectionStart = el.selectionEnd = start + spaceBefore.length + insert.length + spaceAfter.length;
+  }
+  autoResize(el);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  DRAG & DROP — desktop (HTML5)
+// ════════════════════════════════════════════════════════════════
+function onDragStart(e, index) {
+  dragSrcIndex = index;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(index));
+  // Delay adding class so ghost image looks normal
+  setTimeout(() => {
+    const items = document.querySelectorAll('.line-item');
+    if (items[index]) items[index].classList.add('dragging');
+  }, 0);
+}
+
+function onDragOver(e, index) {
+  if (dragSrcIndex === null) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.line-item').forEach((el, i) => {
+    el.classList.toggle('drag-target', i === index && i !== dragSrcIndex);
+  });
+}
+
+function onDrop(e, index) {
+  e.preventDefault();
+  document.querySelectorAll('.line-item').forEach(el => el.classList.remove('drag-target', 'dragging'));
+  if (dragSrcIndex !== null && index !== dragSrcIndex) {
+    reorderLines(dragSrcIndex, index);
+  }
+  dragSrcIndex = null;
+}
+
+function onDragEnd(e) {
+  dragSrcIndex = null;
+  document.querySelectorAll('.line-item').forEach(el => {
+    el.classList.remove('dragging', 'drag-target');
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  DRAG & DROP — mobile (touch)
+// ════════════════════════════════════════════════════════════════
+function onTouchDragStart(e, index) {
+  e.preventDefault();
+  e.stopPropagation();
+
+  touchDrag = { srcIndex: index, dropIndex: index };
+
+  const items = document.querySelectorAll('.line-item');
+  if (items[index]) items[index].classList.add('dragging');
+  if (navigator.vibrate) navigator.vibrate(30); // light haptic
+
+  // Attach move/end to document so they fire even if finger leaves the handle
+  document.addEventListener('touchmove', onTouchDragMove, { passive: false });
+  document.addEventListener('touchend',  onTouchDragEnd,  { passive: true  });
+}
+
+function onTouchDragMove(e) {
+  if (!touchDrag) return;
+  e.preventDefault(); // prevent page scroll while dragging
+
+  const touch = e.touches[0];
+  const items = document.querySelectorAll('.line-item');
+
+  // Find which item the finger is hovering over by midpoint
+  let newDrop = touchDrag.srcIndex;
+  items.forEach((el, i) => {
+    const rect = el.getBoundingClientRect();
+    if (touch.clientY >= rect.top && touch.clientY < rect.top + rect.height) {
+      newDrop = i;
+    }
+  });
+
+  if (newDrop !== touchDrag.dropIndex) {
+    touchDrag.dropIndex = newDrop;
+    items.forEach((el, i) => {
+      el.classList.toggle('drag-target', i === newDrop && i !== touchDrag.srcIndex);
+    });
+  }
+}
+
+function onTouchDragEnd(e) {
+  document.removeEventListener('touchmove', onTouchDragMove);
+  document.removeEventListener('touchend',  onTouchDragEnd);
+
+  if (!touchDrag) return;
+  const { srcIndex, dropIndex } = touchDrag;
+
+  document.querySelectorAll('.line-item').forEach(el => {
+    el.classList.remove('dragging', 'drag-target');
+  });
+
+  touchDrag = null;
+
+  if (srcIndex !== dropIndex) {
+    reorderLines(srcIndex, dropIndex);
   }
 }
 
@@ -1316,7 +1591,7 @@ async function reviewWithAI() {
   const numbered  = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
   const notesVal  = document.getElementById('additional-notes').value.trim();
   const notesSection = notesVal
-    ? `\n\nADDITIONAL NOTES (fix grammar/phrasing, keep as bullet lines, one per line):\n${notesVal}`
+    ? `\n\nADDITIONAL NOTES (fix grammar/phrasing only, keep as bullet lines):\n${notesVal}`
     : '';
 
   try {
@@ -1333,32 +1608,36 @@ async function reviewWithAI() {
         max_tokens: 1500,
         messages: [{
           role: 'user',
-          content: `You are proofreading construction scope lines for Elite Construction + Remodeling (Spokane, WA). Lines are voice-dictated by a Russian-accented contractor.
+          content: `You are proofreading construction scope lines for Elite Construction + Remodeling (Spokane, WA). Lines are voice-dictated by a Russian-accented contractor named Sergey.
 
 RULES:
-1. Title case every scope line (capitalize each word)
-2. Fix obvious speech-to-text errors only — missing small words like "and", "the", "of"
+1. Title case every scope line (capitalize each significant word).
+2. Fix missing small words that speech-to-text drops — "and", "the", "to", "of" — only when their absence is clearly a mishearing of natural speech.
 3. Apply these exact phrase corrections:
    - Any variation of "furnish and install" → always "Furnish and Install"
    - "install on provided" / "install owner provide" / "install homeowner provided" → "Install Owner Provided"
-   - A line starting with "Owner Provided" (no Install at the front) → add "Install" at the start: "Install Owner Provided ..."
-   - "owner to pay electrician" / "I want to pay electrician" / "owner pay electrician" → "Owner to Pay Electrician Directly"
-   - "owner to pay plumber" / "I want to pay plumber" / "owner pay plumber" → "Owner to Pay Plumber Directly"
+   - A line starting with "Owner Provided" (no Install at the front) → add "Install" at the start
+   - "owner to pay electrician" / "owner pay electrician" → "Owner to Pay Electrician Directly"
+   - "owner to pay plumber" / "owner pay plumber" → "Owner to Pay Plumber Directly"
    - "remove and replace" / "remove replace" → "Remove and Replace"
-   - "demo" / "demolish" → keep as-is (do not expand)
-   - "LMP" → "LVP" (speech-to-text mishearing of flooring product name)
-   - "LBP", "LBV", "LVB" or similar → "LVP" (all are likely mishearings of LVP flooring)
-4. DO NOT reword, restructure, or add any words that weren't said
-5. DO NOT change product names, brand names, or specific measurements
-6. When in doubt — leave it exactly as-is
+   - "LMP", "LBP", "LBV", "LVB", or any similar 3-letter combo → "LVP" (only when the line is about flooring)
+   - "dura rock" / "dura-rock" / "durarock" → "Durock"
+   - "green board" → "Green Board"
+4. CONSTRUCTION TERM MISHEARING CORRECTIONS — read the FULL LINE in context before applying any of these. If the substitution would make the line nonsensical, leave the original word:
+   - "Joyce" or "Joyce's" → "Joists" or "Joist" — ONLY when the line is clearly about structural framing: floors, ceilings, subfloor, sistering, ledger, rim, headers, or similar structural context. Example: "Sister the Joyce in Bathroom Floor" → "Sister the Joists in Bathroom Floor"
+   - "Furnishing" at the start of a line → "Furnish and" — Example: "Furnishing Install New Toilet" → "Furnish and Install New Toilet"
+   - "Sheetrock" (any case) → "Sheetrock" (capitalize correctly)
+   - "OSB" → keep as "OSB" (do not spell out)
+   - "LVP", "LVT" → keep as-is (these are correct flooring acronyms)
+5. DO NOT reword, restructure, or add words beyond what the rules above specify.
+6. DO NOT change product names, brand names, measurements, or model numbers.
+7. If a word seems like a mishearing but none of the corrections above clearly apply, leave it exactly as-is. Never guess.
 
-CORRECT EXAMPLES (these are already right — do not change them):
+CORRECT EXAMPLES (already right — do not change these patterns):
 - Furnish and Install Shower Door
 - Furnish and Install New Toilet
 - Furnish and Install Dual Action Shower Valve and Shower Head
 - Furnish and Install Acrylic Shower Wall Panels
-- Furnish & Install Laminate Countertop
-- Furnish and Install Owner Provided Vanity with Top and Sink
 - Install Owner Provided Vanity with Top and Sink
 - Install Owner Provided LVP Flooring
 - Install Owner Provided Glass Shower Door
@@ -1374,19 +1653,22 @@ CORRECT EXAMPLES (these are already right — do not change them):
 - Frame Around the Furnace to Create Utility Room
 - Finish Framing Around the Duct Work and Beams on Ceiling
 - Demolition of Existing Tile Shower
+- Sister the Joists in Bathroom Floor Area
+- Add Sister Joists to Existing Joists to Level the Floor
+- Remove and Replace Damaged Floor Joists
+- Install New Rim Joist at Foundation
 - Owner to Pay Electrician Directly for All Electrical Work
 - Owner to Pay Plumber Directly for All Plumbing Work
 - Paint Walls and Ceiling Two Coats
 - Remove and Replace Drywall
 NOTE: Lines with multi-line descriptions (e.g. "Frame the following:\n- item 1\n- item 2") should be kept exactly as-is including line breaks.
 
-NOTES lines (after ADDITIONAL NOTES:) — sentence case only, no title case.
+NOTES lines — sentence case only, no title case.
 CORRECT NOTES EXAMPLES:
 - Owner to pay electrician directly for all electrical work
-- Owner to pay plumber directly for all plumbing work
 - Building permit not included in the price
 
-Return ONLY a numbered list (exact same count as input). If additional notes were provided, return them after a line that says exactly "ADDITIONAL NOTES:". No preamble, no commentary.
+Return ONLY a numbered list with the exact same count as input. If additional notes were provided, return them after a line that says exactly "ADDITIONAL NOTES:". No preamble, no commentary, no explanation.
 
 SCOPE LINES:
 ${numbered}${notesSection}`
@@ -1420,7 +1702,6 @@ ${numbered}${notesSection}`
     }
 
     if (parts[1] && notesVal) {
-      // Strip any leading dashes AI may have added — textarea stores plain text only
       const cleanedNotes = parts[1].trim().split('\n')
         .map(l => l.trim().replace(/^-\s*/, ''))
         .filter(Boolean)
@@ -1434,52 +1715,6 @@ ${numbered}${notesSection}`
 
   btn.disabled = false;
   btn.textContent = '✦ Review with AI';
-}
-
-function deleteLine(i) {
-  lines.splice(i, 1);
-  renderLines();
-  if (!lines.length) {
-    document.getElementById('dot-2').classList.remove('done');
-    document.getElementById('dot-3').classList.remove('active');
-  }
-}
-
-function updateLine(i, val) {
-  lines[i] = val;
-  if (changedIndices.has(i)) {
-    changedIndices.delete(i);
-    const items = document.querySelectorAll('.line-item');
-    if (items[i]) items[i].classList.remove('changed');
-  }
-}
-
-function renderLines() {
-  const el = document.getElementById('lines-list');
-  if (!lines.length) {
-    el.innerHTML = `<li class="empty-lines">
-      <span class="empty-icon">🎙</span>
-      Tap the mic below and dictate your first scope line
-    </li>`;
-    return;
-  }
-  document.getElementById('lines-edit-hint').classList.toggle('hidden', lines.length === 0);
-  el.innerHTML = lines.map((line, i) => `
-    <li class="line-item${changedIndices.has(i) ? ' changed' : ''}">
-      <div class="line-num">${i + 1}</div>
-      <textarea class="line-text" rows="1" placeholder="Edit this line..."
-        oninput="autoResize(this); updateLine(${i}, this.value)"
-        onblur="updateLine(${i}, this.value)"
-      >${escHtml(line)}</textarea>
-      <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
-    </li>
-  `).join('');
-  el.querySelectorAll('.line-text').forEach(autoResize);
-}
-
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = el.scrollHeight + 'px';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1500,7 +1735,7 @@ function initSpeech() {
 
   recognition = new SR();
   recognition.lang            = 'en-US';
-  recognition.continuous      = true;  // never stop on pauses
+  recognition.continuous      = true;
   recognition.interimResults  = true;
   recognition.maxAlternatives = 1;
 
@@ -1510,7 +1745,6 @@ function initSpeech() {
       if (r.isFinal) {
         pendingTranscript += (pendingTranscript ? ' ' : '') + r[0].transcript.trim();
         document.getElementById('mic-transcript').textContent = pendingTranscript;
-        // If button already released, stop immediately now that we have final text
         if (wantToStop) {
           clearTimeout(stopFallbackTimer);
           try { recognition.stop(); } catch(e) {}
@@ -1526,18 +1760,32 @@ function initSpeech() {
 
   recognition.onend = () => {
     clearTimeout(stopFallbackTimer);
+
     if (pendingTranscript) {
-      addLine(pendingTranscript);
+      if (capturedActiveLine) {
+        // Insert at cursor in the focused line textarea
+        insertAtCursor(capturedActiveLine.el, pendingTranscript);
+        lines[capturedActiveLine.index] = capturedActiveLine.el.value;
+        autoResize(capturedActiveLine.el);
+      } else {
+        // No line focused — add as a new line at the bottom
+        addLine(pendingTranscript);
+      }
       pendingTranscript = '';
     }
+
     document.getElementById('mic-transcript').textContent = '';
     const btn = document.getElementById('mic-btn');
     btn.classList.remove('listening');
     btn.textContent = '🎤';
-    document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
-    isListening = false;
-    buttonHeld  = false;
-    wantToStop  = false;
+    // Restore hint based on whether a line is still active
+    document.getElementById('mic-hint').textContent = activeLine
+      ? 'Hold mic to insert at cursor'
+      : 'Hold to speak, release to add';
+    isListening        = false;
+    buttonHeld         = false;
+    wantToStop         = false;
+    capturedActiveLine = null;
   };
 }
 
@@ -1546,6 +1794,10 @@ let stopFallbackTimer = null;
 
 function startListening() {
   if (!recognition || isListening) return;
+
+  // Capture active line NOW — before blur fires when focus shifts to mic button
+  capturedActiveLine = activeLine;
+
   pendingTranscript = '';
   buttonHeld  = true;
   wantToStop  = false;
@@ -1563,8 +1815,6 @@ function stopListening() {
   if (!isListening) return;
   buttonHeld = false;
   wantToStop = true;
-  // Stop immediately if we already have finalized text,
-  // otherwise wait up to 300ms for the last word to finalize
   if (pendingTranscript) {
     try { recognition.stop(); } catch(e) {}
   } else {
@@ -1584,7 +1834,6 @@ let notesFallbackTimer  = null;
 function startNotesMic() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR || notesListening) return;
-  const ta = document.getElementById('additional-notes');
 
   notesRecognition                = new SR();
   notesRecognition.lang           = 'en-US';
@@ -1659,13 +1908,10 @@ async function submitToJobTread() {
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner"></div> Posting…';
 
-  const exhibitName = `Exhibit ${currentExhibit || 'A'}`;
+  const exhibitName    = `Exhibit ${currentExhibit || 'A'}`;
   const isFirstExhibit = existingExhibits.length === 0;
 
   try {
-    // ── Create Cost Group for this exhibit ──
-    // positionAfter: last exhibit group ID so it goes below last exhibit
-    // but above NOTES (NOTES has no positionAfter so it stays at end)
     const lastExhibitGroupId = existingExhibits.length > 0
       ? existingExhibits[existingExhibits.length - 1].id
       : null;
@@ -1685,7 +1931,6 @@ async function submitToJobTread() {
     const costGroupId = groupResult?.createCostGroup?.createdCostGroup?.id;
     if (!costGroupId) throw new Error('Could not create cost group for ' + exhibitName);
 
-    // ── Post scope lines into the cost group ──
     for (let i = 0; i < lines.length; i++) {
       const isLast  = i === lines.length - 1;
       const price   = (isLast && totalPrice > 0) ? totalPrice : 0;
@@ -1709,14 +1954,12 @@ async function submitToJobTread() {
       });
     }
 
-    // ── Handle NOTES ──
     const additionalNotes = document.getElementById('additional-notes').value.trim();
     const extraNotes = additionalNotes
       ? additionalNotes.split('\n').map(l => l.trim().replace(/^-\s*/, '')).filter(Boolean)
       : [];
 
     if (isFirstExhibit) {
-      // First exhibit — create fresh NOTES item with standard + extra notes
       const standardNotes = [
         'All waste, nails, and excess material will be cleaned up and disposed of upon completion.',
         'All work to be performed and applied in a professional manner.',
@@ -1740,14 +1983,11 @@ async function submitToJobTread() {
         }
       });
     } else if (extraNotes.length > 0 && existingNotesId) {
-      // Subsequent exhibit — append new notes to existing NOTES item
-      // First fetch current description
       const notesData = await jtPost({
         $: { grantKey },
         costItem: {
           $: { id: existingNotesId },
-          id:          {},
-          description: {}
+          id: {}, description: {}
         }
       });
       const existingDesc = notesData?.costItem?.description || '';
@@ -1755,24 +1995,16 @@ async function submitToJobTread() {
       await jtPost({
         $: { grantKey },
         updateCostItem: {
-          $: {
-            id:          existingNotesId,
-            description: appendedDesc
-          },
-          costItem: {
-            $: { id: existingNotesId },
-            id: {}
-          }
+          $: { id: existingNotesId, description: appendedDesc },
+          costItem: { $: { id: existingNotesId }, id: {} }
         }
       });
     }
 
-    // ── Success ──
     btn.classList.add('success-state');
     btn.innerHTML = `✓ ${exhibitName} posted!`;
     toast(`${exhibitName} posted! Open JobTread to generate the proposal.`, 'ok');
 
-    // Re-fetch exhibits so banner updates with new exhibit included
     setTimeout(async () => {
       lines = [];
       renderLines();
@@ -1784,7 +2016,6 @@ async function submitToJobTread() {
       document.getElementById('dot-2').classList.remove('done');
       document.getElementById('dot-3').classList.remove('active');
 
-      // Refresh exhibit state from JobTread
       try {
         let items = [];
         let page  = null;
@@ -1799,9 +2030,7 @@ async function submitToJobTread() {
                 $: params,
                 nextPage: {},
                 nodes: {
-                  id:        {},
-                  name:      {},
-                  unitPrice: {},
+                  id: {}, name: {}, unitPrice: {},
                   costGroup: { id: {}, name: {} }
                 }
               }
@@ -1810,8 +2039,10 @@ async function submitToJobTread() {
           items = items.concat(data?.organization?.costItems?.nodes || []);
           page  = data?.organization?.costItems?.nextPage || null;
         } while (page);
+
         const notesItem = items.find(i => i.name === 'NOTES' && !i.costGroup);
         if (notesItem) existingNotesId = notesItem.id;
+
         const exhibitMap = {};
         items.forEach(item => {
           if (item.costGroup?.name?.startsWith('Exhibit ')) {
@@ -1823,13 +2054,13 @@ async function submitToJobTread() {
           }
         });
         existingExhibits = Object.values(exhibitMap).sort((a, b) => a.letter.localeCompare(b.letter));
-        // After posting, show updated status — lines already cleared in reset above
+
         const newLetters = existingExhibits.map(e => e.letter);
         const newNext    = nextExhibitLetter(newLetters);
         currentExhibit   = newNext;
-        const bannerText = document.getElementById('exhibit-banner-text');
         const lastPosted = newLetters[newLetters.length - 1];
-        bannerText.textContent = `Exhibit ${lastPosted} posted — ready for Exhibit ${newNext}`;
+        document.getElementById('exhibit-banner-text').textContent =
+          `Exhibit ${lastPosted} posted — ready for Exhibit ${newNext}`;
         show('exhibit-banner');
       } catch(e) {
         console.warn('Could not refresh exhibits:', e.message);
