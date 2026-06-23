@@ -23,14 +23,20 @@
     3. Enter the grant key when prompted — it's saved on that device
 
   CORS NOTE:
-    If you see "Failed to fetch" errors, JobTread's API may block
-    direct browser calls. Solution: deploy a tiny proxy (see bottom
-    of this file for a ready-to-use Netlify function). Then enter
-    your proxy URL in Settings.
+    JobTread allows direct browser calls — the optional Proxy URL field
+    in Settings is a fallback only if that ever changes for your account.
+
+  TRANSCRIPTION & FEEDBACK:
+    Voice dictation and the feedback/correction logging use two small
+    Cloudflare Pages Functions in /functions — they deploy automatically
+    with the rest of this site, no separate setup needed on Sergey's end.
+    The GitHub issue logging needs a GITHUB_ISSUE_TOKEN environment
+    variable set once in the Cloudflare Pages dashboard (Settings →
+    Environment variables) by whoever administers the site.
 
   HOSTING:
-    Drag this single file to netlify.com/drop for instant free hosting.
-    Works on any device with a browser. No maintenance required.
+    This repo is connected to Cloudflare Pages — pushing to the main
+    branch deploys automatically. No manual hosting steps needed.
 
   JOBTREAD API:
     Uses the Pave Query API at https://api.jobtread.com/pave
@@ -776,6 +782,13 @@ h1, h2, .label {
       Only needed for the "Review with AI" button.
     </div>
 
+    <label class="field-label" for="setup-openai">OpenAI API Key <span style="font-weight:400;text-transform:none;font-family:DM Sans">(needed for voice dictation)</span></label>
+    <input type="text" id="setup-openai" class="setup-input" placeholder="sk-..." autocomplete="off" spellcheck="false">
+    <div class="field-hint">
+      From <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>.
+      Powers transcription for the microphone buttons.
+    </div>
+
     <label class="field-label" for="setup-proxy">Proxy URL <span style="font-weight:400;text-transform:none;font-family:DM Sans">(optional)</span></label>
     <input type="url" id="setup-proxy" class="setup-input" placeholder="https://yoursite.netlify.app/.netlify/functions/jt" autocomplete="off">
     <div class="field-hint">
@@ -963,6 +976,10 @@ h1, h2, .label {
     <input type="text" id="s-anthropic" class="settings-input" placeholder="sk-ant-..." spellcheck="false" autocomplete="off">
     <div class="settings-hint">From console.anthropic.com → API Keys. Powers the "Review with AI" button.</div>
 
+    <label class="settings-field-label" for="s-openai">OpenAI API Key</label>
+    <input type="text" id="s-openai" class="settings-input" placeholder="sk-..." spellcheck="false" autocomplete="off">
+    <div class="settings-hint">From platform.openai.com/api-keys. Powers voice dictation (the microphone buttons).</div>
+
     <label class="settings-field-label" for="s-proxy">Proxy URL</label>
     <input type="url" id="s-proxy" class="settings-input" placeholder="Leave blank for direct connection">
     <div class="settings-hint">
@@ -998,8 +1015,9 @@ let isListening    = false;
 let currentExhibit = null;
 let existingExhibits = [];
 let existingNotesId  = null;
-let recognition = null;
-let pendingTranscript = '';
+let mediaRecorder = null;
+let mediaChunks    = [];
+let mediaStream    = null;
 let changedIndices = new Set();
 let flaggedLines    = new Map(); // index -> { reason, aiText }
 let buttonHeld = false;
@@ -1007,6 +1025,7 @@ let orgId        = null;
 let costCodeId   = '22PEaNuVctaf';
 let costTypeId   = '22PU7gmNf9aq';
 let anthropicKey = '';
+let openaiKey     = '';
 let restoredSession = null; // set once in init(), consumed once jobs/lines are ready
 
 // ── Smart dictation: track which textarea is focused ──
@@ -1025,6 +1044,7 @@ function init() {
   grantKey     = localStorage.getItem('ec_grant') || '';
   proxyUrl     = localStorage.getItem('ec_proxy') || '';
   anthropicKey = localStorage.getItem('ec_anthropic') || '';
+  openaiKey    = localStorage.getItem('ec_openai') || '';
   restoredSession = restoreSession(localStorage.getItem(SESSION_STORAGE_KEY));
 
   if (!grantKey) {
@@ -1051,13 +1071,16 @@ function saveSetup() {
   const key     = document.getElementById('setup-key').value.trim();
   const proxy   = document.getElementById('setup-proxy').value.trim();
   const anthKey = document.getElementById('setup-anthropic').value.trim();
+  const oaiKey  = document.getElementById('setup-openai').value.trim();
   if (!key) { toast('Please enter your grant key', 'err'); return; }
   grantKey     = key;
   proxyUrl     = proxy;
   anthropicKey = anthKey;
+  openaiKey    = oaiKey;
   localStorage.setItem('ec_grant',      key);
   localStorage.setItem('ec_proxy',      proxy);
   localStorage.setItem('ec_anthropic',  anthKey);
+  localStorage.setItem('ec_openai',     oaiKey);
   hide('setup-screen');
   show('main-screen');
   renderLines();
@@ -1072,6 +1095,7 @@ function openSettings() {
   document.getElementById('s-key').value       = grantKey;
   document.getElementById('s-proxy').value     = proxyUrl;
   document.getElementById('s-anthropic').value = anthropicKey;
+  document.getElementById('s-openai').value    = openaiKey;
   show('settings-modal');
 }
 function closeSettings() { hide('settings-modal'); }
@@ -1080,9 +1104,11 @@ function saveSettings() {
   grantKey     = document.getElementById('s-key').value.trim();
   proxyUrl     = document.getElementById('s-proxy').value.trim();
   anthropicKey = document.getElementById('s-anthropic').value.trim();
+  openaiKey    = document.getElementById('s-openai').value.trim();
   localStorage.setItem('ec_grant',      grantKey);
   localStorage.setItem('ec_proxy',      proxyUrl);
   localStorage.setItem('ec_anthropic',  anthropicKey);
+  localStorage.setItem('ec_openai',     openaiKey);
   closeSettings();
   toast('Settings saved');
   loadJobs();
@@ -1751,89 +1777,47 @@ async function reviewWithAI() {
 //  SPEECH RECOGNITION
 // ════════════════════════════════════════════════════════════════
 function initSpeech() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const micBtn  = document.getElementById('mic-btn');
-  const micErr  = document.getElementById('mic-error');
-
-  if (!SR) {
+  const micBtn = document.getElementById('mic-btn');
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
     micBtn.disabled = true;
+    const micErr = document.getElementById('mic-error');
     micErr.classList.remove('hidden');
-    micErr.textContent = 'Voice not available — use Chrome on desktop or Android. You can still type lines directly.';
+    micErr.textContent = 'Voice capture not available in this browser. You can still type lines directly.';
     document.getElementById('mic-hint').textContent = 'Type lines directly in the list above';
+  }
+}
+
+async function transcribeAudio(blob, apiKey) {
+  const form = new FormData();
+  form.append('audio', blob, 'clip.webm');
+  form.append('apiKey', apiKey);
+  const res = await fetch('/transcribe', { method: 'POST', body: form });
+  const data = await res.json();
+  if (data.error) throw new Error(typeof data.error === 'string' ? data.error : data.error.message);
+  return (data.text || '').trim();
+}
+
+async function startListening() {
+  if (isListening) return;
+  if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
+
+  capturedActiveLine = activeLine;
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    toast('Microphone permission denied', 'err');
     return;
   }
 
-  recognition = new SR();
-  recognition.lang            = 'en-US';
-  recognition.continuous      = true;
-  recognition.interimResults  = true;
-  recognition.maxAlternatives = 1;
+  mediaChunks = [];
+  mediaRecorder = new MediaRecorder(mediaStream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) mediaChunks.push(e.data); };
+  mediaRecorder.onstop = () => transcribeRecording();
+  mediaRecorder.start();
 
-  recognition.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) {
-        pendingTranscript += (pendingTranscript ? ' ' : '') + r[0].transcript.trim();
-        document.getElementById('mic-transcript').textContent = pendingTranscript;
-        if (wantToStop) {
-          clearTimeout(stopFallbackTimer);
-          try { recognition.stop(); } catch(e) {}
-        }
-      }
-    }
-  };
-
-  recognition.onerror = (e) => {
-    if (e.error === 'no-speech') return;
-    if (e.error === 'not-allowed') { wantToStop = true; toast('Microphone permission denied', 'err'); }
-  };
-
-  recognition.onend = () => {
-    clearTimeout(stopFallbackTimer);
-
-    if (pendingTranscript) {
-      if (capturedActiveLine) {
-        // Insert at cursor in the focused line textarea
-        insertAtCursor(capturedActiveLine.el, pendingTranscript);
-        lines[capturedActiveLine.index] = capturedActiveLine.el.value;
-        autoResize(capturedActiveLine.el);
-      } else {
-        // No line focused — add as a new line at the bottom
-        addLine(pendingTranscript);
-      }
-      pendingTranscript = '';
-    }
-
-    document.getElementById('mic-transcript').textContent = '';
-    const btn = document.getElementById('mic-btn');
-    btn.classList.remove('listening');
-    btn.textContent = '🎤';
-    // Restore hint based on whether a line is still active
-    document.getElementById('mic-hint').textContent = activeLine
-      ? 'Hold mic to insert at cursor'
-      : 'Hold to speak, release to add';
-    isListening        = false;
-    buttonHeld         = false;
-    wantToStop         = false;
-    capturedActiveLine = null;
-  };
-}
-
-let wantToStop = false;
-let stopFallbackTimer = null;
-
-function startListening() {
-  if (!recognition || isListening) return;
-
-  // Capture active line NOW — before blur fires when focus shifts to mic button
-  capturedActiveLine = activeLine;
-
-  pendingTranscript = '';
-  buttonHeld  = true;
-  wantToStop  = false;
   isListening = true;
-  clearTimeout(stopFallbackTimer);
-  try { recognition.start(); } catch(e) {}
+  buttonHeld  = true;
   const btn = document.getElementById('mic-btn');
   btn.classList.add('listening');
   btn.textContent = '🔴';
@@ -1842,71 +1826,71 @@ function startListening() {
 }
 
 function stopListening() {
-  if (!isListening) return;
+  if (!isListening || !mediaRecorder) return;
   buttonHeld = false;
-  wantToStop = true;
-  if (pendingTranscript) {
-    try { recognition.stop(); } catch(e) {}
-  } else {
-    stopFallbackTimer = setTimeout(() => {
-      try { recognition.stop(); } catch(e) {}
-    }, 300);
-  }
+  mediaRecorder.stop();
+  mediaStream.getTracks().forEach(t => t.stop());
+  isListening = false;
+
+  const btn = document.getElementById('mic-btn');
+  btn.classList.remove('listening');
+  btn.textContent = '⏳';
+  document.getElementById('mic-hint').textContent = 'Transcribing…';
 }
 
-// Notes mic — separate one-shot recognition for the notes field
-let notesListening      = false;
-let notesRecognition    = null;
-let notesPending        = '';
-let notesWantToStop     = false;
-let notesFallbackTimer  = null;
+async function transcribeRecording() {
+  const btn = document.getElementById('mic-btn');
+  try {
+    const blob = new Blob(mediaChunks, { type: 'audio/webm' });
+    const transcript = await transcribeAudio(blob, openaiKey);
 
-function startNotesMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR || notesListening) return;
-
-  notesRecognition                = new SR();
-  notesRecognition.lang           = 'en-US';
-  notesRecognition.continuous     = true;
-  notesRecognition.interimResults = true;
-
-  notesRecognition.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) {
-        notesPending += (notesPending ? ' ' : '') + r[0].transcript.trim();
-        document.getElementById('notes-mic-transcript').textContent = notesPending;
-        if (notesWantToStop) {
-          clearTimeout(notesFallbackTimer);
-          try { notesRecognition.stop(); } catch(e) {}
-        }
+    if (transcript) {
+      if (capturedActiveLine) {
+        insertAtCursor(capturedActiveLine.el, transcript);
+        lines[capturedActiveLine.index] = capturedActiveLine.el.value;
+        autoResize(capturedActiveLine.el);
+        saveSession();
+      } else {
+        addLine(transcript);
       }
     }
-  };
+  } catch (e) {
+    toast('Transcription failed: ' + e.message, 'err');
+  }
 
-  notesRecognition.onerror = (e) => { if (e.error !== 'no-speech') notesWantToStop = true; };
+  document.getElementById('mic-transcript').textContent = '';
+  btn.classList.remove('listening');
+  btn.textContent = '🎤';
+  document.getElementById('mic-hint').textContent = activeLine
+    ? 'Hold mic to insert at cursor'
+    : 'Hold to speak, release to add';
+  capturedActiveLine = null;
+}
 
-  notesRecognition.onend = () => {
-    clearTimeout(notesFallbackTimer);
-    if (notesPending) {
-      const ta = document.getElementById('additional-notes');
-      ta.value = ta.value ? ta.value + '\n' + notesPending : notesPending;
-      notesPending = '';
-    }
-    document.getElementById('notes-mic-transcript').textContent = '';
-    document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
-    const btn = document.getElementById('notes-mic-btn');
-    btn.classList.remove('listening');
-    btn.textContent = '🎤';
-    notesListening  = false;
-    notesWantToStop = false;
-  };
+// Notes mic — same transcription pipeline as the main mic, separate recorder/stream
+let notesListening   = false;
+let notesMediaRecorder = null;
+let notesMediaChunks   = [];
+let notesMediaStream   = null;
 
-  notesPending    = '';
-  notesWantToStop = false;
-  notesListening  = true;
-  clearTimeout(notesFallbackTimer);
-  notesRecognition.start();
+async function startNotesMic() {
+  if (notesListening) return;
+  if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
+
+  try {
+    notesMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    toast('Microphone permission denied', 'err');
+    return;
+  }
+
+  notesMediaChunks = [];
+  notesMediaRecorder = new MediaRecorder(notesMediaStream);
+  notesMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) notesMediaChunks.push(e.data); };
+  notesMediaRecorder.onstop = () => transcribeNotesRecording();
+  notesMediaRecorder.start();
+
+  notesListening = true;
   const btn = document.getElementById('notes-mic-btn');
   btn.classList.add('listening');
   btn.textContent = '🔴';
@@ -1915,15 +1899,35 @@ function startNotesMic() {
 }
 
 function stopNotesMic() {
-  if (!notesListening) return;
-  notesWantToStop = true;
-  if (notesPending) {
-    try { notesRecognition.stop(); } catch(e) {}
-  } else {
-    notesFallbackTimer = setTimeout(() => {
-      try { notesRecognition.stop(); } catch(e) {}
-    }, 300);
+  if (!notesListening || !notesMediaRecorder) return;
+  notesMediaRecorder.stop();
+  notesMediaStream.getTracks().forEach(t => t.stop());
+  notesListening = false;
+
+  const btn = document.getElementById('notes-mic-btn');
+  btn.classList.remove('listening');
+  btn.textContent = '⏳';
+  document.getElementById('notes-mic-hint').textContent = 'Transcribing…';
+}
+
+async function transcribeNotesRecording() {
+  const btn = document.getElementById('notes-mic-btn');
+  try {
+    const blob = new Blob(notesMediaChunks, { type: 'audio/webm' });
+    const transcript = await transcribeAudio(blob, openaiKey);
+    if (transcript) {
+      const ta = document.getElementById('additional-notes');
+      ta.value = ta.value ? ta.value + '\n' + transcript : transcript;
+      saveSession();
+    }
+  } catch (e) {
+    toast('Transcription failed: ' + e.message, 'err');
   }
+
+  document.getElementById('notes-mic-transcript').textContent = '';
+  btn.classList.remove('listening');
+  btn.textContent = '🎤';
+  document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -2132,53 +2136,6 @@ function toast(msg, type = '') {
 // ════════════════════════════════════════════════════════════════
 init();
 </script>
-
-<!--
-  ═══════════════════════════════════════════════════════════════════
-  NETLIFY PROXY FUNCTION (for CORS issues)
-  ═══════════════════════════════════════════════════════════════════
-
-  If you get CORS errors, do this once:
-
-  1. Create a GitHub repo
-  2. Put this HTML file in the repo root as index.html
-  3. Create netlify/functions/jt.js with this content:
-
-  ─────────────────────────────────────────────────────────────────
-  exports.handler = async (event) => {
-    if (event.httpMethod !== 'POST') {
-      return { statusCode: 405, body: 'Method Not Allowed' };
-    }
-    try {
-      const res = await fetch('https://api.jobtread.com/pave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: event.body
-      });
-      const data = await res.text();
-      return {
-        statusCode: res.status,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        },
-        body: data
-      };
-    } catch (e) {
-      return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
-    }
-  };
-  ─────────────────────────────────────────────────────────────────
-
-  4. Connect the repo to Netlify (netlify.com — free account)
-  5. After deploy, your proxy URL will be:
-       https://YOUR-SITE-NAME.netlify.app/.netlify/functions/jt
-  6. Enter that URL in Settings → Proxy URL
-
-  The grant key never leaves the browser — the proxy only forwards
-  the POST body which already contains the key inside the query.
-  ═══════════════════════════════════════════════════════════════════
--->
 
 </body>
 </html>
