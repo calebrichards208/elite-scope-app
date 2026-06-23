@@ -233,15 +233,17 @@ h1, h2, .label {
 
 .line-item {
   position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   padding: 10px 0;
   border-bottom: 1px solid var(--silver);
   animation: slideIn 0.18s ease;
   transition: background 0.1s, border-top 0.1s;
 }
 .line-item:last-child { border-bottom: none; }
+.line-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
 
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(-6px); }
@@ -365,6 +367,19 @@ h1, h2, .label {
   background: var(--amber);
   border-color: var(--amber);
   color: var(--white);
+}
+.line-item.flagged {
+  border: 1.5px dashed var(--amber);
+  border-radius: 6px;
+  margin: 2px -4px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.flag-reason {
+  font-size: 11px;
+  color: var(--amber-dk);
+  padding: 2px 8px 4px 38px;
+  font-style: italic;
 }
 
 .empty-lines {
@@ -966,6 +981,7 @@ h1, h2, .label {
 
 
 <script src="lib/sessionStore.js"></script>
+<script src="lib/reviewResponse.js"></script>
 <script>
 'use strict';
 
@@ -985,6 +1001,7 @@ let existingNotesId  = null;
 let recognition = null;
 let pendingTranscript = '';
 let changedIndices = new Set();
+let flaggedLines    = new Map(); // index -> { reason, aiText }
 let buttonHeld = false;
 let orgId        = null;
 let costCodeId   = '22PEaNuVctaf';
@@ -1375,6 +1392,7 @@ function addLine(raw) {
 function insertLineAbove(index) {
   lines.splice(index, 0, '');
   changedIndices = new Set([...changedIndices].map(i => i >= index ? i + 1 : i));
+  flaggedLines    = new Map([...flaggedLines].map(([i, v]) => [i >= index ? i + 1 : i, v]));
   renderLines();
   // Focus the new empty textarea so user can type or dictate immediately
   const textareas = document.querySelectorAll('.line-text');
@@ -1396,6 +1414,7 @@ function reorderLines(fromIndex, toIndex) {
   newLines.splice(toIndex, 0, item);
   lines = newLines;
   changedIndices.clear(); // clear highlights after reorder
+  flaggedLines.clear();
   renderLines();
   saveSession();
 }
@@ -1417,7 +1436,23 @@ function updateLine(i, val) {
     const items = document.querySelectorAll('.line-item');
     if (items[i]) items[i].classList.remove('changed');
   }
+  if (flaggedLines.has(i)) {
+    flaggedLines.delete(i);
+    const items = document.querySelectorAll('.line-item');
+    if (items[i]) {
+      items[i].classList.remove('flagged');
+      const reasonEl = items[i].querySelector('.flag-reason');
+      if (reasonEl) reasonEl.remove();
+    }
+  }
   saveSession();
+}
+
+function checkFlaggedCorrection(i, val) {
+  const flag = flaggedLines.get(i);
+  if (flag && val.trim() !== flag.aiText.trim()) {
+    // Task 5 wires this up to file a GitHub issue.
+  }
 }
 
 function saveSession() {
@@ -1440,27 +1475,33 @@ function renderLines() {
     return;
   }
   document.getElementById('lines-edit-hint').classList.remove('hidden');
-  el.innerHTML = lines.map((line, i) => `
-    <li class="line-item${changedIndices.has(i) ? ' changed' : ''}"
+  el.innerHTML = lines.map((line, i) => {
+    const flag = flaggedLines.get(i);
+    return `
+    <li class="line-item${changedIndices.has(i) ? ' changed' : ''}${flag ? ' flagged' : ''}"
         data-index="${i}"
         ondragover="onDragOver(event,${i})"
         ondrop="onDrop(event,${i})">
-      <button class="insert-above-btn" onclick="insertLineAbove(${i})" title="Insert line above">+</button>
-      <div class="drag-handle"
-           draggable="true"
-           ondragstart="onDragStart(event,${i})"
-           ondragend="onDragEnd(event)"
-           ontouchstart="onTouchDragStart(event,${i})"
-           title="Drag to reorder">⠿</div>
-      <div class="line-num">${i + 1}</div>
-      <textarea class="line-text" rows="1" placeholder="Edit this line..."
-        oninput="autoResize(this); updateLine(${i}, this.value)"
-        onblur="updateLine(${i}, this.value); clearActiveLine(${i})"
-        onfocus="setActiveLine(${i}, this)"
-      >${escHtml(line)}</textarea>
-      <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
+      <div class="line-row">
+        <button class="insert-above-btn" onclick="insertLineAbove(${i})" title="Insert line above">+</button>
+        <div class="drag-handle"
+             draggable="true"
+             ondragstart="onDragStart(event,${i})"
+             ondragend="onDragEnd(event)"
+             ontouchstart="onTouchDragStart(event,${i})"
+             title="Drag to reorder">⠿</div>
+        <div class="line-num">${i + 1}</div>
+        <textarea class="line-text" rows="1" placeholder="Edit this line..."
+          oninput="autoResize(this); updateLine(${i}, this.value)"
+          onblur="checkFlaggedCorrection(${i}, this.value); updateLine(${i}, this.value); clearActiveLine(${i})"
+          onfocus="setActiveLine(${i}, this)"
+        >${escHtml(line)}</textarea>
+        <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
+      </div>
+      ${flag ? `<div class="flag-reason">⚠ ${escHtml(flag.reason)}</div>` : ''}
     </li>
-  `).join('');
+  `;
+  }).join('');
   el.querySelectorAll('.line-text').forEach(autoResize);
 }
 
@@ -1640,6 +1681,9 @@ async function reviewWithAI() {
     : '';
 
   try {
+    const rulesText = await fetch('RULES.md').then(r => r.text());
+    const prompt = buildReviewPrompt({ rulesText, numbered, notesSection });
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -1649,109 +1693,47 @@ async function reviewWithAI() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model:      'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: `You are proofreading construction scope lines for Elite Construction + Remodeling (Spokane, WA). Lines are voice-dictated by a Russian-accented contractor named Sergey.
-
-RULES:
-1. Title case every scope line (capitalize each significant word).
-2. Fix missing small words that speech-to-text drops — "and", "the", "to", "of" — only when their absence is clearly a mishearing of natural speech.
-3. Apply these exact phrase corrections:
-   - Any variation of "furnish and install" → always "Furnish and Install"
-   - "install on provided" / "install owner provide" / "install homeowner provided" → "Install Owner Provided"
-   - A line starting with "Owner Provided" (no Install at the front) → add "Install" at the start
-   - "owner to pay electrician" / "owner pay electrician" → "Owner to Pay Electrician Directly"
-   - "owner to pay plumber" / "owner pay plumber" → "Owner to Pay Plumber Directly"
-   - "remove and replace" / "remove replace" → "Remove and Replace"
-   - "LMP", "LBP", "LBV", "LVB", or any similar 3-letter combo → "LVP" (only when the line is about flooring)
-   - "dura rock" / "dura-rock" / "durarock" → "Durock"
-   - "green board" → "Green Board"
-4. CONSTRUCTION TERM MISHEARING CORRECTIONS — read the FULL LINE in context before applying any of these. If the substitution would make the line nonsensical, leave the original word:
-   - "Joyce" or "Joyce's" → "Joists" or "Joist" — ONLY when the line is clearly about structural framing: floors, ceilings, subfloor, sistering, ledger, rim, headers, or similar structural context. Example: "Sister the Joyce in Bathroom Floor" → "Sister the Joists in Bathroom Floor"
-   - "Furnishing" at the start of a line → "Furnish and" — Example: "Furnishing Install New Toilet" → "Furnish and Install New Toilet"
-   - "Sheetrock" (any case) → "Sheetrock" (capitalize correctly)
-   - "OSB" → keep as "OSB" (do not spell out)
-   - "LVP", "LVT" → keep as-is (these are correct flooring acronyms)
-5. DO NOT reword, restructure, or add words beyond what the rules above specify.
-6. DO NOT change product names, brand names, measurements, or model numbers.
-7. If a word seems like a mishearing but none of the corrections above clearly apply, leave it exactly as-is. Never guess.
-
-CORRECT EXAMPLES (already right — do not change these patterns):
-- Furnish and Install Shower Door
-- Furnish and Install New Toilet
-- Furnish and Install Dual Action Shower Valve and Shower Head
-- Furnish and Install Acrylic Shower Wall Panels
-- Install Owner Provided Vanity with Top and Sink
-- Install Owner Provided LVP Flooring
-- Install Owner Provided Glass Shower Door
-- Install Blocking for Secure Fastening of Towel Bars, Grab Bars, TP Holder, Shower Door, Robe Hook, Mirror
-- Install Duct from Bathroom Exhaust Fan to Nearest Soffit
-- Install Bathroom Vent Fan/Light Centered Over Shower
-- Install 60x32 Right Hand White Shower Base in the Bathroom
-- Install New Moen Rough-In Shower Valve and Rough-In Shower Head
-- Install New Moen Shower Valve Trim and Shower Head (Chrome)
-- Install Green Board on Shower Surround
-- Install Water Lines for Shower, Sink, and Toilet
-- Frame Opening for Recessed Niche
-- Frame Around the Furnace to Create Utility Room
-- Finish Framing Around the Duct Work and Beams on Ceiling
-- Demolition of Existing Tile Shower
-- Sister the Joists in Bathroom Floor Area
-- Add Sister Joists to Existing Joists to Level the Floor
-- Remove and Replace Damaged Floor Joists
-- Install New Rim Joist at Foundation
-- Owner to Pay Electrician Directly for All Electrical Work
-- Owner to Pay Plumber Directly for All Plumbing Work
-- Paint Walls and Ceiling Two Coats
-- Remove and Replace Drywall
-NOTE: Lines with multi-line descriptions (e.g. "Frame the following:\n- item 1\n- item 2") should be kept exactly as-is including line breaks.
-
-NOTES lines — sentence case only, no title case.
-CORRECT NOTES EXAMPLES:
-- Owner to pay electrician directly for all electrical work
-- Building permit not included in the price
-
-Return ONLY a numbered list with the exact same count as input. If additional notes were provided, return them after a line that says exactly "ADDITIONAL NOTES:". No preamble, no commentary, no explanation.
-
-SCOPE LINES:
-${numbered}${notesSection}`
-        }]
+        model:       'claude-haiku-4-5-20251001',
+        max_tokens:  2000,
+        tools:       [REVIEW_TOOL],
+        tool_choice: { type: 'tool', name: 'record_reviewed_lines' },
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
 
-    const raw   = data?.content?.[0]?.text?.trim() || '';
-    const parts = raw.split(/ADDITIONAL NOTES:/i);
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use');
+    if (!toolUseBlock) throw new Error('AI did not return a structured response');
 
-    const cleaned = parts[0].trim().split('\n')
-      .map(l => l.replace(/^\d+\.\s*/, '').trim())
-      .filter(l => l.length > 0);
+    const { lines: reviewedLines, notes: reviewedNotes } = parseReviewToolInput(toolUseBlock.input, lines.length);
 
-    if (cleaned.length === lines.length) {
-      changedIndices = new Set();
-      cleaned.forEach((line, i) => {
-        if (line.trim().toLowerCase() !== lines[i].trim().toLowerCase()) {
-          changedIndices.add(i);
-        }
-      });
-      lines = cleaned;
-      renderLines();
-      const n = changedIndices.size;
-      toast(n === 0 ? 'No changes needed ✓' : `${n} line${n > 1 ? 's' : ''} corrected — check highlighted`, 'ok');
-    } else {
-      toast('Scope line count mismatch — check manually', 'err');
-    }
+    changedIndices = new Set();
+    flaggedLines    = new Map();
+    reviewedLines.forEach((item, i) => {
+      if (item.text.toLowerCase() !== lines[i].trim().toLowerCase()) {
+        changedIndices.add(i);
+      }
+      if (item.flagged) {
+        flaggedLines.set(i, { reason: item.reason, aiText: item.text });
+      }
+    });
+    lines = reviewedLines.map(item => item.text);
+    renderLines();
+    saveSession();
 
-    if (parts[1] && notesVal) {
-      const cleanedNotes = parts[1].trim().split('\n')
-        .map(l => l.trim().replace(/^-\s*/, ''))
-        .filter(Boolean)
-        .join('\n');
-      document.getElementById('additional-notes').value = cleanedNotes;
+    const n = changedIndices.size;
+    const f = flaggedLines.size;
+    toast(
+      n === 0 && f === 0 ? 'No changes needed ✓' :
+      f === 0 ? `${n} line${n > 1 ? 's' : ''} corrected — check highlighted` :
+      `${n} corrected, ${f} flagged for review`,
+      'ok'
+    );
+
+    if (reviewedNotes.length && notesVal) {
+      document.getElementById('additional-notes').value = reviewedNotes.join('\n');
     }
 
   } catch(e) {
