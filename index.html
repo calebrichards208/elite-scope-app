@@ -881,7 +881,7 @@ h1, h2, .label {
     <p style="font-size:12px;color:var(--slate-lt);margin-bottom:8px" id="notes-hint-text">
       Add job-specific notes below. Tap mic and speak — each pause = new bullet point.
     </p>
-    <textarea id="additional-notes" rows="3" placeholder="e.g. Owner to pay electrician directly for all electrical work"
+    <textarea id="additional-notes" rows="3" placeholder="e.g. Owner to pay electrician directly for all electrical work" oninput="saveSession()"
       style="width:100%;padding:10px 12px;border:1.5px solid var(--silver);border-radius:6px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--navy);resize:vertical;background:var(--bg);"
       onfocus="this.style.borderColor='var(--amber)'" onblur="this.style.borderColor='var(--silver)'"></textarea>
     <div style="display:flex;flex-direction:column;align-items:center;padding:16px 0 4px;border-top:1px solid var(--silver);margin-top:10px;">
@@ -965,6 +965,7 @@ h1, h2, .label {
 <div id="toast" class="toast"></div>
 
 
+<script src="lib/sessionStore.js"></script>
 <script>
 'use strict';
 
@@ -989,6 +990,7 @@ let orgId        = null;
 let costCodeId   = '22PEaNuVctaf';
 let costTypeId   = '22PU7gmNf9aq';
 let anthropicKey = '';
+let restoredSession = null; // set once in init(), consumed once jobs/lines are ready
 
 // ── Smart dictation: track which textarea is focused ──
 let activeLine         = null; // { index, el } — currently focused scope line
@@ -1006,6 +1008,7 @@ function init() {
   grantKey     = localStorage.getItem('ec_grant') || '';
   proxyUrl     = localStorage.getItem('ec_proxy') || '';
   anthropicKey = localStorage.getItem('ec_anthropic') || '';
+  restoredSession = restoreSession(localStorage.getItem(SESSION_STORAGE_KEY));
 
   if (!grantKey) {
     show('setup-screen');
@@ -1013,6 +1016,11 @@ function init() {
   } else {
     hide('setup-screen');
     show('main-screen');
+    if (restoredSession && !restoredSession.jobId) {
+      lines = restoredSession.lines;
+      document.getElementById('additional-notes').value = restoredSession.notes;
+      restoredSession = null;
+    }
     renderLines();
     loadJobs();
     initSpeech();
@@ -1122,6 +1130,22 @@ async function loadJobs() {
     allJobs = (data?.organization?.jobs?.nodes || []);
     renderJobList(allJobs);
 
+    if (restoredSession) {
+      const savedLines = restoredSession.lines;
+      const savedNotes = restoredSession.notes;
+      const matchingJob = restoredSession.jobId
+        ? allJobs.find(j => j.id === restoredSession.jobId)
+        : null;
+      restoredSession = null;
+
+      if (matchingJob) {
+        await selectJob(matchingJob);
+      }
+      lines = savedLines;
+      document.getElementById('additional-notes').value = savedNotes;
+      renderLines();
+    }
+
   } catch (err) {
     const isCors = err.message.includes('Failed to fetch') || err.message.includes('NetworkError');
     listEl.innerHTML = `<div style="padding:14px;color:var(--red);font-size:13px;line-height:1.6">
@@ -1175,7 +1199,11 @@ function filterJobs(q) {
 }
 
 async function pickJob(idx) {
-  selectedJob = shownJobs[idx];
+  return selectJob(shownJobs[idx]);
+}
+
+async function selectJob(job) {
+  selectedJob = job;
   document.getElementById('sel-job-name').textContent = selectedJob.name || 'Untitled Job';
   document.getElementById('sel-job-meta').textContent = selectedJob.number ? '#' + selectedJob.number : '';
   hide('job-picker');
@@ -1250,6 +1278,7 @@ async function pickJob(idx) {
   document.getElementById('dot-1').classList.remove('active');
   document.getElementById('dot-1').classList.add('done');
   document.getElementById('dot-2').classList.add('active');
+  saveSession();
 }
 
 function nextExhibitLetter(existingLetters) {
@@ -1301,6 +1330,7 @@ function clearAllLines() {
   renderLines();
   document.getElementById('exhibit-banner-text').textContent =
     `Exhibit ${currentExhibit} — blank scope`;
+  saveSession();
 }
 
 function changeJob() {
@@ -1321,6 +1351,7 @@ function changeJob() {
   document.getElementById('dot-1').classList.remove('done');
   document.getElementById('dot-2').classList.remove('active');
   renderLines();
+  saveSession();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1337,6 +1368,7 @@ function addLine(raw) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
   }
+  saveSession();
 }
 
 // Insert a blank line above the given index and focus it
@@ -1353,6 +1385,7 @@ function insertLineAbove(index) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
   }
+  saveSession();
 }
 
 // Reorder lines array: move item at fromIndex to toIndex
@@ -1364,6 +1397,7 @@ function reorderLines(fromIndex, toIndex) {
   lines = newLines;
   changedIndices.clear(); // clear highlights after reorder
   renderLines();
+  saveSession();
 }
 
 function deleteLine(i) {
@@ -1373,6 +1407,7 @@ function deleteLine(i) {
     document.getElementById('dot-2').classList.remove('done');
     document.getElementById('dot-3').classList.remove('active');
   }
+  saveSession();
 }
 
 function updateLine(i, val) {
@@ -1382,6 +1417,16 @@ function updateLine(i, val) {
     const items = document.querySelectorAll('.line-item');
     if (items[i]) items[i].classList.remove('changed');
   }
+  saveSession();
+}
+
+function saveSession() {
+  const snapshot = buildSessionSnapshot({
+    lines,
+    notes: document.getElementById('additional-notes').value,
+    jobId: selectedJob ? selectedJob.id : null
+  });
+  localStorage.setItem(SESSION_STORAGE_KEY, serializeSession(snapshot));
 }
 
 function renderLines() {
@@ -2010,6 +2055,7 @@ async function submitToJobTread() {
       renderLines();
       document.getElementById('total-price').value = '';
       document.getElementById('additional-notes').value = '';
+      localStorage.removeItem(SESSION_STORAGE_KEY);
       btn.classList.remove('success-state');
       btn.disabled = false;
       btn.textContent = 'Post Exhibit to JobTread';
