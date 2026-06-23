@@ -999,6 +999,7 @@ h1, h2, .label {
 
 <script src="lib/sessionStore.js"></script>
 <script src="lib/reviewResponse.js"></script>
+<script src="lib/githubIssue.js"></script>
 <script>
 'use strict';
 
@@ -1027,6 +1028,18 @@ let costTypeId   = '22PU7gmNf9aq';
 let anthropicKey = '';
 let openaiKey     = '';
 let restoredSession = null; // set once in init(), consumed once jobs/lines are ready
+
+async function fileGithubIssue(type, { title, body }) {
+  try {
+    await fetch('/github-issue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, title, body })
+    });
+  } catch (e) {
+    console.warn('Could not file GitHub issue:', e.message);
+  }
+}
 
 // ── Smart dictation: track which textarea is focused ──
 let activeLine         = null; // { index, el } — currently focused scope line
