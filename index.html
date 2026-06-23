@@ -1681,7 +1681,10 @@ async function reviewWithAI() {
     : '';
 
   try {
-    const rulesText = await fetch('RULES.md').then(r => r.text());
+    const rulesRes = await fetch('RULES.md');
+    if (!rulesRes.ok) throw new Error('Could not load RULES.md (HTTP ' + rulesRes.status + ')');
+    const rulesText = await rulesRes.text();
+    if (rulesText.trim().startsWith('<')) throw new Error('RULES.md returned unexpected content — check deployment');
     const prompt = buildReviewPrompt({ rulesText, numbered, notesSection });
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
