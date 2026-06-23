@@ -1490,7 +1490,8 @@ function updateLine(i, val) {
 function checkFlaggedCorrection(i, val) {
   const flag = flaggedLines.get(i);
   if (flag && val.trim() !== flag.aiText.trim()) {
-    // Task 5 wires this up to file a GitHub issue.
+    const issue = buildCorrectionIssue({ aiReturned: flag.aiText, correctedTo: val.trim(), reason: flag.reason });
+    fileGithubIssue(issue.type, issue);
   }
 }
 
