@@ -1639,17 +1639,36 @@ function insertAtCursor(el, text) {
 // ════════════════════════════════════════════════════════════════
 //  DRAG & DROP — shared live-reorder helper
 // ════════════════════════════════════════════════════════════════
-// Moves the dragged row to sit next to the hovered row immediately
-// (so it's clear what's about to happen), and FLIP-animates every
-// other row sliding into its new slot. The underlying `lines` array
-// is untouched until drop/touchend commits the final position —
-// this only ever reorders DOM nodes for live visual feedback.
-function liveMoveTo(srcEl, hoverEl) {
+// Moves the dragged row exactly ONE slot at a time, toward whichever
+// row the cursor is currently over — never a multi-row jump straight
+// to wherever the cursor geometrically intersects. A swap only fires
+// once the cursor crosses the MIDPOINT of the neighboring row in that
+// row, not merely its edge: that dead zone around each boundary is
+// what stops a drag from flapping back and forth when the cursor sits
+// right at the line between two rows. This same one-step-at-a-time
+// model is also what lets a drag reliably reach the very first or
+// last slot — each step is a clean, deterministic single swap, so
+// there's nothing to overshoot or get stuck flapping on as it chains
+// through one row after another. FLIP-animates the displaced
+// neighbor. The underlying `lines` array is untouched until
+// drop/touchend commits the final position — this only ever reorders
+// DOM nodes for live visual feedback.
+function liveStepToward(srcEl, hoverEl, cursorY) {
   if (!srcEl || !hoverEl || srcEl === hoverEl) return;
   const items = [...document.querySelectorAll('.line-item')];
   const srcPos = items.indexOf(srcEl);
   const hoverPos = items.indexOf(hoverEl);
   if (srcPos === -1 || hoverPos === -1 || srcPos === hoverPos) return;
+
+  const movingDown  = hoverPos > srcPos;
+  const neighborPos = movingDown ? srcPos + 1 : srcPos - 1;
+  const neighborEl  = items[neighborPos];
+  if (!neighborEl || neighborEl === srcEl) return;
+
+  const rect     = neighborEl.getBoundingClientRect();
+  const midpoint = rect.top + rect.height / 2;
+  if (movingDown  && cursorY < midpoint) return;
+  if (!movingDown && cursorY > midpoint) return;
 
   // Snap every row to its true flow position first. Without this, a fast
   // drag across several rows triggers a new move while the previous
@@ -1662,8 +1681,8 @@ function liveMoveTo(srcEl, hoverEl) {
   const firstRects = new Map();
   items.forEach(el => { if (el !== srcEl) firstRects.set(el, el.getBoundingClientRect()); });
 
-  if (srcPos < hoverPos) hoverEl.after(srcEl);
-  else hoverEl.before(srcEl);
+  if (movingDown) neighborEl.after(srcEl);
+  else neighborEl.before(srcEl);
 
   firstRects.forEach((first, el) => {
     const last = el.getBoundingClientRect();
@@ -1735,7 +1754,7 @@ function onDragOver(e, index) {
   if (dragSrcIndex === null) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
-  liveMoveTo(document.querySelector(`.line-item[data-index="${dragSrcIndex}"]`), e.currentTarget);
+  liveStepToward(document.querySelector(`.line-item[data-index="${dragSrcIndex}"]`), e.currentTarget, e.clientY);
 }
 
 function onDrop(e, index) {
@@ -1785,7 +1804,7 @@ function onTouchDragMove(e) {
     }
   });
 
-  if (hoverEl) liveMoveTo(srcEl, hoverEl);
+  if (hoverEl) liveStepToward(srcEl, hoverEl, touch.clientY);
 }
 
 function onTouchDragEnd(e) {
