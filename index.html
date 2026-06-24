@@ -1984,9 +1984,25 @@ function initSpeech() {
   }
 }
 
+// Safari (iOS and macOS) can't record audio/webm at all — MediaRecorder
+// silently falls back to audio/mp4 there. Picking the format explicitly,
+// per-recorder, is what lets the Blob/upload filename match what was
+// actually recorded on every browser, instead of assuming webm everywhere.
+function pickRecorderMimeType() {
+  if (!window.MediaRecorder) return '';
+  for (const type of ['audio/webm', 'audio/mp4']) {
+    if (MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return ''; // let the browser pick its own default as a last resort
+}
+
 async function transcribeAudio(blob, apiKey) {
+  // The filename's extension is what OpenAI's API uses to decode the
+  // audio — it has to match the Blob's actual format, not be hardcoded,
+  // since that format now varies by browser (see pickRecorderMimeType).
+  const ext = (blob.type.split('/')[1] || 'webm').split(';')[0];
   const form = new FormData();
-  form.append('audio', blob, 'clip.webm');
+  form.append('audio', blob, `clip.${ext}`);
   form.append('apiKey', apiKey);
   const res = await fetch('/transcribe', { method: 'POST', body: form });
   const data = await res.json();
@@ -2010,7 +2026,8 @@ async function startListening() {
   }
 
   mediaChunks = [];
-  mediaRecorder = new MediaRecorder(mediaStream);
+  const mimeType = pickRecorderMimeType();
+  mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
   mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) mediaChunks.push(e.data); };
   mediaRecorder.onstop = () => transcribeRecording();
   mediaRecorder.start();
@@ -2040,7 +2057,7 @@ function stopListening() {
 async function transcribeRecording() {
   const btn = document.getElementById('mic-btn');
   try {
-    const blob = new Blob(mediaChunks, { type: 'audio/webm' });
+    const blob = new Blob(mediaChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
     const transcript = await transcribeAudio(blob, openaiKey);
 
     if (transcript) {
@@ -2087,7 +2104,8 @@ async function startNotesMic() {
   }
 
   notesMediaChunks = [];
-  notesMediaRecorder = new MediaRecorder(notesMediaStream);
+  const notesMimeType = pickRecorderMimeType();
+  notesMediaRecorder = notesMimeType ? new MediaRecorder(notesMediaStream, { mimeType: notesMimeType }) : new MediaRecorder(notesMediaStream);
   notesMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) notesMediaChunks.push(e.data); };
   notesMediaRecorder.onstop = () => transcribeNotesRecording();
   notesMediaRecorder.start();
@@ -2115,7 +2133,7 @@ function stopNotesMic() {
 async function transcribeNotesRecording() {
   const btn = document.getElementById('notes-mic-btn');
   try {
-    const blob = new Blob(notesMediaChunks, { type: 'audio/webm' });
+    const blob = new Blob(notesMediaChunks, { type: notesMediaRecorder.mimeType || 'audio/webm' });
     const transcript = await transcribeAudio(blob, openaiKey);
     if (transcript) {
       const ta = document.getElementById('additional-notes');
@@ -2172,7 +2190,8 @@ async function startFeedbackMic() {
   }
 
   feedbackMediaChunks = [];
-  feedbackMediaRecorder = new MediaRecorder(feedbackMediaStream);
+  const feedbackMimeType = pickRecorderMimeType();
+  feedbackMediaRecorder = feedbackMimeType ? new MediaRecorder(feedbackMediaStream, { mimeType: feedbackMimeType }) : new MediaRecorder(feedbackMediaStream);
   feedbackMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) feedbackMediaChunks.push(e.data); };
   feedbackMediaRecorder.onstop = () => transcribeFeedbackRecording();
   feedbackMediaRecorder.start();
@@ -2192,7 +2211,7 @@ function stopFeedbackMic() {
 
 async function transcribeFeedbackRecording() {
   try {
-    const blob = new Blob(feedbackMediaChunks, { type: 'audio/webm' });
+    const blob = new Blob(feedbackMediaChunks, { type: feedbackMediaRecorder.mimeType || 'audio/webm' });
     const transcript = await transcribeAudio(blob, openaiKey);
     if (transcript) {
       const ta = document.getElementById('feedback-text');

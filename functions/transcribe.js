@@ -12,8 +12,14 @@ export async function onRequestPost(context) {
       });
     }
 
+    // OpenAI's API decodes by the filename's extension, so it has to match
+    // what was actually recorded — the browser names the file accordingly
+    // (e.g. clip.mp4 on Safari, which can't record webm), and that name
+    // survives the multipart upload on the File object here. Hardcoding
+    // "clip.webm" regardless of the real format caused transcription to
+    // fail with a "file might be corrupt" error on Safari specifically.
     const upstreamForm = new FormData();
-    upstreamForm.append('file', audio, 'clip.webm');
+    upstreamForm.append('file', audio, audio.name || 'clip.webm');
     upstreamForm.append('model', 'gpt-4o-transcribe');
 
     const upstream = await fetch('https://api.openai.com/v1/audio/transcriptions', {
