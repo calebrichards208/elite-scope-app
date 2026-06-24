@@ -31,11 +31,11 @@
 
   TRANSCRIPTION & FEEDBACK:
     Voice dictation and the feedback/correction logging use two small
-    Cloudflare Pages Functions in /functions — they deploy automatically
+    Cloudflare Worker Functions in /functions — they deploy automatically
     with the rest of this site, no separate setup needed on Sergey's end.
     The GitHub issue logging needs a GITHUB_ISSUE_TOKEN environment
-    variable set once in the Cloudflare Pages dashboard (Settings →
-    Environment variables) by whoever administers the site.
+    variable set once in the Cloudflare dashboard (Settings →
+    Variables and Secrets) by whoever administers the site.
 
   HOSTING:
     This repo is connected to Cloudflare Workers (with static assets) —
