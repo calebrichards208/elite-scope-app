@@ -80,6 +80,7 @@ body {
   color: var(--navy);
   min-height: 100vh;
   -webkit-tap-highlight-color: transparent;
+  zoom: 1.2;
 }
 
 h1, h2, .label {
@@ -89,6 +90,14 @@ h1, h2, .label {
 
 /* ── Layout Utilities ─────────────────────────────────────────── */
 .hidden { display: none !important; }
+
+/* Centers the app and keeps controls within reach on wide/desktop
+   screens. No visible effect on narrow (phone) viewports, since the
+   viewport width is already below this max-width. */
+#main-screen {
+  max-width: 480px;
+  margin: 0 auto;
+}
 
 /* ── Header ───────────────────────────────────────────────────── */
 .header {
@@ -1630,9 +1639,13 @@ function onDragStart(e, index) {
   dragSrcIndex = index;
   e.dataTransfer.effectAllowed = 'move';
   e.dataTransfer.setData('text/plain', String(index));
-  // Delay adding class so ghost image looks normal
+  const items = document.querySelectorAll('.line-item');
+  // Use the whole line as the drag ghost (not just the small drag handle,
+  // which is the default since that's the element with draggable="true").
+  if (items[index]) e.dataTransfer.setDragImage(items[index], 20, 20);
+  // Delay adding the dimming class so the ghost image (captured above)
+  // still looks like the normal, undimmed row.
   setTimeout(() => {
-    const items = document.querySelectorAll('.line-item');
     if (items[index]) items[index].classList.add('dragging');
   }, 0);
 }
