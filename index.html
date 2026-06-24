@@ -420,6 +420,27 @@ h1, h2, .label {
   border-top: 1px solid var(--silver);
   margin-top: 8px;
 }
+/* While a scope line is focused for editing on phone/tablet, pin the
+   mic bar to the bottom of the screen so the on-screen keyboard can
+   never push it out of view — the problem reported was having to
+   scroll down past the keyboard to find it mid-correction. Desktop
+   has no on-screen keyboard to occlude it, so this only applies below
+   the breakpoint where that's actually a problem. */
+@media (max-width: 900px) {
+  .mic-zone.pinned {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0;
+    width: 100%;
+    max-width: 760px;
+    background: var(--white);
+    box-shadow: 0 -2px 12px rgba(15,23,42,0.12);
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    margin-top: 0;
+    z-index: 30;
+  }
+}
 .mic-btn {
   width: 76px; height: 76px;
   border-radius: 50%;
@@ -1565,7 +1586,7 @@ function renderLines() {
         <div class="line-num">${i + 1}</div>
         <textarea class="line-text" rows="1" placeholder="Edit this line..."
           oninput="autoResize(this); updateLine(${i}, this.value)"
-          onblur="checkFlaggedCorrection(${i}, this.value); updateLine(${i}, this.value); clearActiveLine(${i})"
+          onblur="checkFlaggedCorrection(${i}, this.value); updateLine(${i}, this.value); clearActiveLine(${i}, this)"
           onfocus="setActiveLine(${i}, this)"
         >${escHtml(line)}</textarea>
         <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
@@ -1590,14 +1611,29 @@ function autoResize(el) {
 function setActiveLine(i, el) {
   activeLine = { index: i, el };
   document.getElementById('mic-hint').textContent = 'Hold mic to insert at cursor';
+  document.querySelector('.mic-zone').classList.add('pinned');
 }
 
 // Called on blur — delayed so mic mousedown can capture first
-function clearActiveLine(i) {
+function clearActiveLine(i, el) {
   setTimeout(() => {
     if (activeLine && activeLine.index === i) {
       activeLine = null;
       document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
+      document.querySelector('.mic-zone').classList.remove('pinned');
+    }
+    // Clean up a line left completely blank (e.g. tapped + then clicked
+    // away without typing or dictating) so stray placeholder lines don't
+    // pile up. Skip if the mic is mid-dictation for this exact line —
+    // capturedActiveLine is set synchronously on mousedown, before this
+    // delayed check runs, so it reliably tells the two cases apart.
+    // Re-finds the current index by element rather than trusting the
+    // closed-over `i`, since another blank line's cleanup firing first
+    // would otherwise shift this one's position out from under it.
+    const micEngagedHere = isListening || (capturedActiveLine && capturedActiveLine.el === el);
+    if (el && el.value.trim() === '' && !micEngagedHere) {
+      const currentIndex = [...document.querySelectorAll('.line-text')].indexOf(el);
+      if (currentIndex !== -1) deleteLine(currentIndex);
     }
   }, 300);
 }
