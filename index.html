@@ -814,14 +814,14 @@ h1, h2, .label {
       <div class="sub">Scope Dictation</div>
     </div>
     <div style="display:flex;gap:6px;align-items:center">
-      <button class="settings-btn" id="feedback-btn"
-        onmousedown="startFeedbackMic()" onmouseup="stopFeedbackMic()" onmouseleave="stopFeedbackMic()"
-        ontouchstart="e=arguments[0];e.preventDefault();startFeedbackMic()" ontouchend="stopFeedbackMic()"
-        title="Hold to leave feedback about the app">💬</button>
+      <button class="settings-btn" id="feedback-btn" onclick="openFeedbackModal()"
+        title="Send feedback about the app"
+        style="width:auto;padding:0 12px;gap:6px;font-size:13px;font-weight:500;color:var(--slate-lt)">
+        💬 Feedback
+      </button>
       <button class="settings-btn" onclick="openSettings()" title="Settings">⚙</button>
     </div>
   </div>
-  <div id="feedback-hint" class="hidden" style="text-align:center;font-size:12px;color:var(--slate-lt);padding:2px 0 8px">Hold to speak, release to send</div>
 
   <!-- Progress dots -->
   <div class="progress-dots">
@@ -997,6 +997,38 @@ h1, h2, .label {
     <button class="settings-save-btn" onclick="saveSettings()">Save Settings</button>
     <div style="text-align:center;font-size:12px;color:var(--slate-lt);margin: 8px 0 4px">App version 1.1 — Elite Construction + Remodeling</div>
     <button class="reset-btn" onclick="resetApp()">Reset &amp; Clear All Data</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════
+     FEEDBACK MODAL
+═══════════════════════════════════════════════════ -->
+<div id="feedback-modal" class="modal-backdrop hidden" onclick="if(event.target===this)closeFeedbackModal()">
+  <div class="modal-sheet">
+    <div class="modal-topbar">
+      <div class="modal-title">Send Feedback</div>
+      <button class="modal-close" onclick="closeFeedbackModal()">✕</button>
+    </div>
+    <div class="settings-hint">Tell us about a problem or an idea — only you and Caleb will see this.</div>
+
+    <textarea id="feedback-text" rows="4" placeholder="Type, or hold the mic below to speak..."
+      style="width:100%;padding:10px 12px;border:1.5px solid var(--silver);border-radius:6px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--navy);resize:vertical;background:var(--bg);"
+      onfocus="this.style.borderColor='var(--amber)'" onblur="this.style.borderColor='var(--silver)'"></textarea>
+
+    <div style="display:flex;flex-direction:column;align-items:center;padding:14px 0 4px;">
+      <button class="mic-btn" id="feedback-modal-mic-btn"
+        onmousedown="startFeedbackMic()" onmouseup="stopFeedbackMic()" onmouseleave="stopFeedbackMic()"
+        ontouchstart="e=arguments[0];e.preventDefault();startFeedbackMic()" ontouchend="stopFeedbackMic()"
+        title="Hold to speak">
+        🎤
+      </button>
+      <div class="mic-hint" id="feedback-modal-mic-hint">Hold to speak, release to fill in text above</div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button style="flex:1;padding:12px;background:none;border:1.5px solid var(--silver);color:var(--slate);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer" onclick="closeFeedbackModal()">Cancel</button>
+      <button class="settings-save-btn" style="flex:1;margin-bottom:0" onclick="sendFeedback()">Send</button>
+    </div>
   </div>
 </div>
 
@@ -1955,12 +1987,31 @@ async function transcribeNotesRecording() {
   document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
 }
 
-// Feedback button — captures freeform voice feedback and files it as a
-// GitHub issue. Capture-and-file only: no in-app response or action.
+// Feedback modal — captures freeform voice/typed feedback, lets the user
+// review and edit it, then files it as a GitHub issue only on explicit Send.
 let feedbackListening     = false;
 let feedbackMediaRecorder = null;
 let feedbackMediaChunks   = [];
 let feedbackMediaStream   = null;
+
+function openFeedbackModal() {
+  document.getElementById('feedback-text').value = '';
+  show('feedback-modal');
+}
+
+function closeFeedbackModal() {
+  if (feedbackListening) stopFeedbackMic();
+  hide('feedback-modal');
+}
+
+async function sendFeedback() {
+  const text = document.getElementById('feedback-text').value.trim();
+  if (!text) { toast('Nothing to send', 'err'); return; }
+  const issue = buildFeedbackIssue({ transcript: text });
+  await fileGithubIssue(issue.type, issue);
+  toast('Feedback sent — thanks!', 'ok');
+  closeFeedbackModal();
+}
 
 async function startFeedbackMic() {
   if (feedbackListening) return;
@@ -1978,13 +2029,12 @@ async function startFeedbackMic() {
   feedbackMediaChunks = [];
   feedbackMediaRecorder = new MediaRecorder(feedbackMediaStream);
   feedbackMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) feedbackMediaChunks.push(e.data); };
-  feedbackMediaRecorder.onstop = () => sendFeedbackRecording();
+  feedbackMediaRecorder.onstop = () => transcribeFeedbackRecording();
   feedbackMediaRecorder.start();
 
   feedbackListening = true;
-  document.getElementById('feedback-btn').classList.add('listening');
-  show('feedback-hint');
-  document.getElementById('feedback-hint').textContent = 'Speaking… release when done';
+  document.getElementById('feedback-modal-mic-btn').classList.add('listening');
+  document.getElementById('feedback-modal-mic-hint').textContent = 'Speaking… release when done';
 }
 
 function stopFeedbackMic() {
@@ -1992,24 +2042,23 @@ function stopFeedbackMic() {
   feedbackMediaRecorder.stop();
   feedbackMediaStream.getTracks().forEach(t => t.stop());
   feedbackListening = false;
-  document.getElementById('feedback-hint').textContent = 'Sending…';
+  document.getElementById('feedback-modal-mic-hint').textContent = 'Transcribing…';
 }
 
-async function sendFeedbackRecording() {
+async function transcribeFeedbackRecording() {
   try {
     const blob = new Blob(feedbackMediaChunks, { type: 'audio/webm' });
     const transcript = await transcribeAudio(blob, openaiKey);
     if (transcript) {
-      const issue = buildFeedbackIssue({ transcript });
-      await fileGithubIssue(issue.type, issue);
-      toast('Feedback sent — thanks!', 'ok');
+      const ta = document.getElementById('feedback-text');
+      ta.value = ta.value ? ta.value + ' ' + transcript : transcript;
     }
   } catch (e) {
-    toast('Could not send feedback: ' + e.message, 'err');
+    toast('Transcription failed: ' + e.message, 'err');
   }
 
-  document.getElementById('feedback-btn').classList.remove('listening');
-  hide('feedback-hint');
+  document.getElementById('feedback-modal-mic-btn').classList.remove('listening');
+  document.getElementById('feedback-modal-mic-hint').textContent = 'Hold to speak, release to fill in text above';
 }
 
 // ════════════════════════════════════════════════════════════════
