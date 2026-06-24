@@ -1586,7 +1586,7 @@ function renderLines() {
         <div class="line-num">${i + 1}</div>
         <textarea class="line-text" rows="1" placeholder="Edit this line..."
           oninput="autoResize(this); updateLine(${i}, this.value)"
-          onblur="checkFlaggedCorrection(${i}, this.value); updateLine(${i}, this.value); clearActiveLine(${i}, this)"
+          onblur="checkFlaggedCorrection(${i}, this.value); updateLine(${i}, this.value); clearActiveLine(${i})"
           onfocus="setActiveLine(${i}, this)"
         >${escHtml(line)}</textarea>
         <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
@@ -1615,27 +1615,39 @@ function setActiveLine(i, el) {
 }
 
 // Called on blur — delayed so mic mousedown can capture first
-function clearActiveLine(i, el) {
+function clearActiveLine(i) {
   setTimeout(() => {
     if (activeLine && activeLine.index === i) {
       activeLine = null;
       document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
       document.querySelector('.mic-zone').classList.remove('pinned');
     }
-    // Clean up a line left completely blank (e.g. tapped + then clicked
-    // away without typing or dictating) so stray placeholder lines don't
-    // pile up. Skip if the mic is mid-dictation for this exact line —
-    // capturedActiveLine is set synchronously on mousedown, before this
-    // delayed check runs, so it reliably tells the two cases apart.
-    // Re-finds the current index by element rather than trusting the
-    // closed-over `i`, since another blank line's cleanup firing first
-    // would otherwise shift this one's position out from under it.
-    const micEngagedHere = isListening || (capturedActiveLine && capturedActiveLine.el === el);
-    if (el && el.value.trim() === '' && !micEngagedHere) {
-      const currentIndex = [...document.querySelectorAll('.line-text')].indexOf(el);
-      if (currentIndex !== -1) deleteLine(currentIndex);
-    }
+    cleanupBlankLines();
   }, 300);
+}
+
+// Removes any scope line left completely blank (e.g. tapped + then
+// clicked away without typing or dictating), except whichever one is
+// currently focused or mid-dictation. Re-scans the live `lines` array
+// fresh each time rather than tracking a specific captured DOM
+// element — tapping + again before this fires re-renders the whole
+// list, which silently invalidated an element-based check and let
+// blank lines pile up when + was tapped repeatedly. This state-based
+// sweep stays correct no matter how many renders happened in between.
+function cleanupBlankLines() {
+  const keepIndex = activeLine ? activeLine.index : (capturedActiveLine ? capturedActiveLine.index : null);
+  let changed = false;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (i === keepIndex) continue;
+    if (lines[i].trim() === '') {
+      lines.splice(i, 1);
+      changed = true;
+    }
+  }
+  if (changed) {
+    renderLines();
+    saveSession();
+  }
 }
 
 // Insert dictated text at the current cursor position / selection
