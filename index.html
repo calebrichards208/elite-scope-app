@@ -813,8 +813,15 @@ h1, h2, .label {
       <h1>Elite<span style="color:var(--amber)">+</span></h1>
       <div class="sub">Scope Dictation</div>
     </div>
-    <button class="settings-btn" onclick="openSettings()" title="Settings">⚙</button>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="settings-btn" id="feedback-btn"
+        onmousedown="startFeedbackMic()" onmouseup="stopFeedbackMic()" onmouseleave="stopFeedbackMic()"
+        ontouchstart="e=arguments[0];e.preventDefault();startFeedbackMic()" ontouchend="stopFeedbackMic()"
+        title="Hold to leave feedback about the app">💬</button>
+      <button class="settings-btn" onclick="openSettings()" title="Settings">⚙</button>
+    </div>
   </div>
+  <div id="feedback-hint" class="hidden" style="text-align:center;font-size:12px;color:var(--slate-lt);padding:2px 0 8px">Hold to speak, release to send</div>
 
   <!-- Progress dots -->
   <div class="progress-dots">
@@ -1942,6 +1949,61 @@ async function transcribeNotesRecording() {
   btn.classList.remove('listening');
   btn.textContent = '🎤';
   document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
+}
+
+// Feedback button — captures freeform voice feedback and files it as a
+// GitHub issue. Capture-and-file only: no in-app response or action.
+let feedbackListening     = false;
+let feedbackMediaRecorder = null;
+let feedbackMediaChunks   = [];
+let feedbackMediaStream   = null;
+
+async function startFeedbackMic() {
+  if (feedbackListening) return;
+  if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
+
+  try {
+    feedbackMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    toast('Microphone permission denied', 'err');
+    return;
+  }
+
+  feedbackMediaChunks = [];
+  feedbackMediaRecorder = new MediaRecorder(feedbackMediaStream);
+  feedbackMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) feedbackMediaChunks.push(e.data); };
+  feedbackMediaRecorder.onstop = () => sendFeedbackRecording();
+  feedbackMediaRecorder.start();
+
+  feedbackListening = true;
+  document.getElementById('feedback-btn').classList.add('listening');
+  show('feedback-hint');
+  document.getElementById('feedback-hint').textContent = 'Speaking… release when done';
+}
+
+function stopFeedbackMic() {
+  if (!feedbackListening || !feedbackMediaRecorder) return;
+  feedbackMediaRecorder.stop();
+  feedbackMediaStream.getTracks().forEach(t => t.stop());
+  feedbackListening = false;
+  document.getElementById('feedback-hint').textContent = 'Sending…';
+}
+
+async function sendFeedbackRecording() {
+  try {
+    const blob = new Blob(feedbackMediaChunks, { type: 'audio/webm' });
+    const transcript = await transcribeAudio(blob, openaiKey);
+    if (transcript) {
+      const issue = buildFeedbackIssue({ transcript });
+      await fileGithubIssue(issue.type, issue);
+      toast('Feedback sent — thanks!', 'ok');
+    }
+  } catch (e) {
+    toast('Could not send feedback: ' + e.message, 'err');
+  }
+
+  document.getElementById('feedback-btn').classList.remove('listening');
+  hide('feedback-hint');
 }
 
 // ════════════════════════════════════════════════════════════════
