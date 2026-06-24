@@ -23,8 +23,11 @@
     3. Enter the grant key when prompted — it's saved on that device
 
   CORS NOTE:
-    JobTread allows direct browser calls — the optional Proxy URL field
-    in Settings is a fallback only if that ever changes for your account.
+    JobTread allows direct browser calls — no proxy is configured or
+    needed. If that ever changes (a "Failed to fetch" / CORS error on
+    the job-loading screen), the fix is adding a small relay function
+    under /functions, the same pattern already used for /transcribe
+    and /github-issue.
 
   TRANSCRIPTION & FEEDBACK:
     Voice dictation and the feedback/correction logging use two small
@@ -35,8 +38,9 @@
     Environment variables) by whoever administers the site.
 
   HOSTING:
-    This repo is connected to Cloudflare Pages — pushing to the main
-    branch deploys automatically. No manual hosting steps needed.
+    This repo is connected to Cloudflare Workers (with static assets) —
+    pushing to the main branch deploys automatically. No manual hosting
+    steps needed.
 
   JOBTREAD API:
     Uses the Pave Query API at https://api.jobtread.com/pave
@@ -789,14 +793,6 @@ h1, h2, .label {
       Powers transcription for the microphone buttons.
     </div>
 
-    <label class="field-label" for="setup-proxy">Proxy URL <span style="font-weight:400;text-transform:none;font-family:DM Sans">(optional)</span></label>
-    <input type="url" id="setup-proxy" class="setup-input" placeholder="https://yoursite.netlify.app/.netlify/functions/jt" autocomplete="off">
-    <div class="field-hint">
-      Leave blank to try a direct connection. If you see CORS errors
-      in the browser console, you'll need to add a Netlify proxy URL.
-      See the comment block at the top of this file for setup instructions.
-    </div>
-
     <button class="setup-save-btn" onclick="saveSetup()">Save &amp; Open App ›</button>
   </div>
 </div>
@@ -987,13 +983,6 @@ h1, h2, .label {
     <input type="text" id="s-openai" class="settings-input" placeholder="sk-..." spellcheck="false" autocomplete="off">
     <div class="settings-hint">From platform.openai.com/api-keys. Powers voice dictation (the microphone buttons).</div>
 
-    <label class="settings-field-label" for="s-proxy">Proxy URL</label>
-    <input type="url" id="s-proxy" class="settings-input" placeholder="Leave blank for direct connection">
-    <div class="settings-hint">
-      Only needed if you see CORS errors. Deploy the Netlify function
-      from the comment block at the top of this file, then paste the URL here.
-    </div>
-
     <button class="settings-save-btn" onclick="saveSettings()">Save Settings</button>
     <div style="text-align:center;font-size:12px;color:var(--slate-lt);margin: 8px 0 4px">App version 1.1 — Elite Construction + Remodeling</div>
     <button class="reset-btn" onclick="resetApp()">Reset &amp; Clear All Data</button>
@@ -1046,7 +1035,6 @@ h1, h2, .label {
 //  STATE
 // ════════════════════════════════════════════════════════════════
 let grantKey   = '';
-let proxyUrl   = '';
 let allJobs    = [];
 let shownJobs  = [];
 let selectedJob    = null;
@@ -1094,7 +1082,6 @@ let touchDrag    = null; // touch drag state
 // ════════════════════════════════════════════════════════════════
 function init() {
   grantKey     = localStorage.getItem('ec_grant') || '';
-  proxyUrl     = localStorage.getItem('ec_proxy') || '';
   anthropicKey = localStorage.getItem('ec_anthropic') || '';
   openaiKey    = localStorage.getItem('ec_openai') || '';
   restoredSession = restoreSession(localStorage.getItem(SESSION_STORAGE_KEY));
@@ -1121,16 +1108,13 @@ function init() {
 // ════════════════════════════════════════════════════════════════
 function saveSetup() {
   const key     = document.getElementById('setup-key').value.trim();
-  const proxy   = document.getElementById('setup-proxy').value.trim();
   const anthKey = document.getElementById('setup-anthropic').value.trim();
   const oaiKey  = document.getElementById('setup-openai').value.trim();
   if (!key) { toast('Please enter your grant key', 'err'); return; }
   grantKey     = key;
-  proxyUrl     = proxy;
   anthropicKey = anthKey;
   openaiKey    = oaiKey;
   localStorage.setItem('ec_grant',      key);
-  localStorage.setItem('ec_proxy',      proxy);
   localStorage.setItem('ec_anthropic',  anthKey);
   localStorage.setItem('ec_openai',     oaiKey);
   hide('setup-screen');
@@ -1145,7 +1129,6 @@ function saveSetup() {
 // ════════════════════════════════════════════════════════════════
 function openSettings() {
   document.getElementById('s-key').value       = grantKey;
-  document.getElementById('s-proxy').value     = proxyUrl;
   document.getElementById('s-anthropic').value = anthropicKey;
   document.getElementById('s-openai').value    = openaiKey;
   show('settings-modal');
@@ -1154,11 +1137,9 @@ function closeSettings() { hide('settings-modal'); }
 
 function saveSettings() {
   grantKey     = document.getElementById('s-key').value.trim();
-  proxyUrl     = document.getElementById('s-proxy').value.trim();
   anthropicKey = document.getElementById('s-anthropic').value.trim();
   openaiKey    = document.getElementById('s-openai').value.trim();
   localStorage.setItem('ec_grant',      grantKey);
-  localStorage.setItem('ec_proxy',      proxyUrl);
   localStorage.setItem('ec_anthropic',  anthropicKey);
   localStorage.setItem('ec_openai',     openaiKey);
   closeSettings();
@@ -1176,8 +1157,7 @@ function resetApp() {
 //  ── JT API ──
 // ════════════════════════════════════════════════════════════════
 async function jtPost(query) {
-  const url = proxyUrl || 'https://api.jobtread.com/pave';
-  const res = await fetch(url, {
+  const res = await fetch('https://api.jobtread.com/pave', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ query })
@@ -1246,7 +1226,7 @@ async function loadJobs() {
     listEl.innerHTML = `<div style="padding:14px;color:var(--red);font-size:13px;line-height:1.6">
       <strong>Could not load jobs</strong><br>
       ${isCors
-        ? 'CORS error — JobTread is blocking direct browser calls.<br>Add a Netlify proxy URL in Settings (see instructions at top of file).'
+        ? 'CORS error — JobTread is blocking direct browser calls. Contact whoever maintains this app.'
         : escHtml(err.message)
       }
     </div>`;
@@ -2236,7 +2216,7 @@ async function submitToJobTread() {
   } catch (err) {
     console.error('JobTread error:', err);
     const isCors = err.message.includes('Failed to fetch');
-    toast(isCors ? 'CORS error — add a proxy URL in Settings' : 'Error: ' + err.message, 'err');
+    toast(isCors ? 'CORS error — contact whoever maintains this app' : 'Error: ' + err.message, 'err');
     btn.disabled = false;
     btn.textContent = 'Post to JobTread';
   }
