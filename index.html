@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Scope Dictation — Elite Construction</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -80,7 +80,6 @@ body {
   color: var(--navy);
   min-height: 100vh;
   -webkit-tap-highlight-color: transparent;
-  zoom: 1.2;
 }
 
 h1, h2, .label {
@@ -91,11 +90,14 @@ h1, h2, .label {
 /* ── Layout Utilities ─────────────────────────────────────────── */
 .hidden { display: none !important; }
 
-/* Centers the app and keeps controls within reach on wide/desktop
-   screens. No visible effect on narrow (phone) viewports, since the
-   viewport width is already below this max-width. */
+/* Caps the app's reading width on wide desktop monitors so it doesn't
+   stretch into an unreadably long line, while staying full-width (no
+   visible effect) on phones and tablets, where 100% is already
+   narrower than this cap. Applied identically to .modal-sheet below
+   so the feedback/settings modals never look inconsistent with the
+   app behind them. */
 #main-screen {
-  max-width: 480px;
+  max-width: 760px;
   margin: 0 auto;
 }
 
@@ -111,7 +113,7 @@ h1, h2, .label {
   z-index: 20;
 }
 .header-left h1 {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--white);
   line-height: 1;
@@ -129,10 +131,10 @@ h1, h2, .label {
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.12);
   color: var(--slate-lt);
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   display: flex; align-items: center; justify-content: center;
   transition: background 0.15s;
 }
@@ -214,7 +216,7 @@ h1, h2, .label {
 }
 .job-item:last-child { border-bottom: none; }
 .job-item:hover, .job-item:active { background: var(--amber-lt); }
-.job-name { font-size: 14px; font-weight: 500; color: var(--navy); }
+.job-name { font-size: 15px; font-weight: 500; color: var(--navy); }
 .job-meta { font-size: 12px; color: var(--slate-lt); margin-top: 2px; }
 
 .job-list-status {
@@ -274,11 +276,11 @@ h1, h2, .label {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  width: 16px;
+  min-width: 22px;
+  width: 22px;
   cursor: grab;
   color: var(--silver);
-  font-size: 14px;
+  font-size: 18px;
   padding: 0;
   margin-top: 6px;
   touch-action: none;
@@ -323,10 +325,6 @@ h1, h2, .label {
   background: var(--amber-lt);
   border-radius: 6px;
 }
-.line-item.drag-target {
-  border-top: 2.5px solid var(--amber) !important;
-  padding-top: 9px;
-}
 
 .line-num {
   min-width: 22px;
@@ -343,15 +341,15 @@ h1, h2, .label {
 }
 .line-text {
   flex: 1;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   font-family: 'DM Sans', sans-serif;
   color: var(--navy);
   border: 1.5px solid transparent;
   background: transparent;
   resize: none;
-  min-height: 28px;
-  padding: 4px 8px;
+  min-height: 32px;
+  padding: 6px 10px;
   border-radius: 6px;
   overflow: hidden;
   transition: border-color 0.15s, background 0.15s;
@@ -366,9 +364,9 @@ h1, h2, .label {
   border: none;
   color: var(--silver);
   cursor: pointer;
-  font-size: 20px;
+  font-size: 24px;
   line-height: 1;
-  padding: 2px 4px;
+  padding: 6px 8px;
   margin-top: 2px;
   transition: color 0.15s;
   flex-shrink: 0;
@@ -448,7 +446,7 @@ h1, h2, .label {
 .mic-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .mic-hint {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--slate-lt);
   margin-top: 10px;
   font-weight: 500;
@@ -665,12 +663,14 @@ h1, h2, .label {
   z-index: 50;
   display: flex;
   align-items: flex-end;
+  justify-content: center;
 }
 .modal-sheet {
   background: var(--white);
   border-radius: 20px 20px 0 0;
   padding: 24px;
   width: 100%;
+  max-width: 760px;
   max-height: 85vh;
   overflow-y: auto;
 }
@@ -1633,6 +1633,59 @@ function insertAtCursor(el, text) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  DRAG & DROP — shared live-reorder helper
+// ════════════════════════════════════════════════════════════════
+// Moves the dragged row to sit next to the hovered row immediately
+// (so it's clear what's about to happen), and FLIP-animates every
+// other row sliding into its new slot. The underlying `lines` array
+// is untouched until drop/touchend commits the final position —
+// this only ever reorders DOM nodes for live visual feedback.
+function liveMoveTo(srcEl, hoverEl) {
+  if (!srcEl || !hoverEl || srcEl === hoverEl) return;
+  const items = [...document.querySelectorAll('.line-item')];
+  const srcPos = items.indexOf(srcEl);
+  const hoverPos = items.indexOf(hoverEl);
+  if (srcPos === -1 || hoverPos === -1 || srcPos === hoverPos) return;
+
+  const firstRects = new Map();
+  items.forEach(el => { if (el !== srcEl) firstRects.set(el, el.getBoundingClientRect()); });
+
+  if (srcPos < hoverPos) hoverEl.after(srcEl);
+  else hoverEl.before(srcEl);
+
+  firstRects.forEach((first, el) => {
+    const last = el.getBoundingClientRect();
+    const dy = first.top - last.top;
+    if (Math.abs(dy) > 0.5) {
+      el.style.transition = 'none';
+      el.style.transform = `translateY(${dy}px)`;
+      el.getBoundingClientRect(); // force reflow so the transition below applies
+      el.style.transition = 'transform 0.18s ease';
+      el.style.transform = '';
+    }
+  });
+}
+
+// Reads the dragged row's final DOM position and commits it as a
+// single array move — a continuous drag only ever moves the one
+// dragged row relative to the others, so one reorderLines() call
+// reflects the whole gesture's end state, no matter how many rows
+// it lived-shifted past along the way.
+function finishDrag(srcIndexAtStart) {
+  const items = [...document.querySelectorAll('.line-item')];
+  items.forEach(el => {
+    el.classList.remove('dragging');
+    el.style.transform = '';
+    el.style.transition = '';
+  });
+  const srcEl = document.querySelector(`.line-item[data-index="${srcIndexAtStart}"]`);
+  const finalPos = srcEl ? items.indexOf(srcEl) : -1;
+  if (finalPos !== -1 && finalPos !== srcIndexAtStart) {
+    reorderLines(srcIndexAtStart, finalPos);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 //  DRAG & DROP — desktop (HTML5)
 // ════════════════════════════════════════════════════════════════
 function onDragStart(e, index) {
@@ -1654,25 +1707,20 @@ function onDragOver(e, index) {
   if (dragSrcIndex === null) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
-  document.querySelectorAll('.line-item').forEach((el, i) => {
-    el.classList.toggle('drag-target', i === index && i !== dragSrcIndex);
-  });
+  liveMoveTo(document.querySelector(`.line-item[data-index="${dragSrcIndex}"]`), e.currentTarget);
 }
 
 function onDrop(e, index) {
   e.preventDefault();
-  document.querySelectorAll('.line-item').forEach(el => el.classList.remove('drag-target', 'dragging'));
-  if (dragSrcIndex !== null && index !== dragSrcIndex) {
-    reorderLines(dragSrcIndex, index);
-  }
+  if (dragSrcIndex !== null) finishDrag(dragSrcIndex);
   dragSrcIndex = null;
 }
 
 function onDragEnd(e) {
+  // Covers cancelled drags (dropped outside any row, or Esc) — onDrop
+  // already nulled dragSrcIndex if drop fired, so this is a no-op then.
+  if (dragSrcIndex !== null) finishDrag(dragSrcIndex);
   dragSrcIndex = null;
-  document.querySelectorAll('.line-item').forEach(el => {
-    el.classList.remove('dragging', 'drag-target');
-  });
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1682,7 +1730,7 @@ function onTouchDragStart(e, index) {
   e.preventDefault();
   e.stopPropagation();
 
-  touchDrag = { srcIndex: index, dropIndex: index };
+  touchDrag = { srcIndex: index };
 
   const items = document.querySelectorAll('.line-item');
   if (items[index]) items[index].classList.add('dragging');
@@ -1698,23 +1746,18 @@ function onTouchDragMove(e) {
   e.preventDefault(); // prevent page scroll while dragging
 
   const touch = e.touches[0];
-  const items = document.querySelectorAll('.line-item');
+  const srcEl = document.querySelector(`.line-item[data-index="${touchDrag.srcIndex}"]`);
 
   // Find which item the finger is hovering over by midpoint
-  let newDrop = touchDrag.srcIndex;
-  items.forEach((el, i) => {
+  let hoverEl = null;
+  document.querySelectorAll('.line-item').forEach(el => {
     const rect = el.getBoundingClientRect();
     if (touch.clientY >= rect.top && touch.clientY < rect.top + rect.height) {
-      newDrop = i;
+      hoverEl = el;
     }
   });
 
-  if (newDrop !== touchDrag.dropIndex) {
-    touchDrag.dropIndex = newDrop;
-    items.forEach((el, i) => {
-      el.classList.toggle('drag-target', i === newDrop && i !== touchDrag.srcIndex);
-    });
-  }
+  if (hoverEl) liveMoveTo(srcEl, hoverEl);
 }
 
 function onTouchDragEnd(e) {
@@ -1722,17 +1765,8 @@ function onTouchDragEnd(e) {
   document.removeEventListener('touchend',  onTouchDragEnd);
 
   if (!touchDrag) return;
-  const { srcIndex, dropIndex } = touchDrag;
-
-  document.querySelectorAll('.line-item').forEach(el => {
-    el.classList.remove('dragging', 'drag-target');
-  });
-
+  finishDrag(touchDrag.srcIndex);
   touchDrag = null;
-
-  if (srcIndex !== dropIndex) {
-    reorderLines(srcIndex, dropIndex);
-  }
 }
 
 // ════════════════════════════════════════════════════════════════
