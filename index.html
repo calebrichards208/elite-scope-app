@@ -325,6 +325,10 @@ h1, h2, .label {
   background: var(--amber-lt);
   border-radius: 6px;
 }
+.line-item.just-moved {
+  background: var(--amber-lt);
+  border-radius: 6px;
+}
 
 .line-num {
   min-width: 22px;
@@ -1007,7 +1011,7 @@ h1, h2, .label {
       <div class="modal-title">Send Feedback</div>
       <button class="modal-close" onclick="closeFeedbackModal()">✕</button>
     </div>
-    <div class="settings-hint">Tell us about a problem or an idea — only you and Caleb will see this.</div>
+    <div class="settings-hint">Tell us about a problem or an idea. Only Caleb will see this.</div>
 
     <textarea id="feedback-text" rows="4" placeholder="Type, or hold the mic below to speak..."
       style="width:100%;padding:10px 12px;border:1.5px solid var(--silver);border-radius:6px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--navy);resize:vertical;background:var(--bg);"
@@ -1647,6 +1651,14 @@ function liveMoveTo(srcEl, hoverEl) {
   const hoverPos = items.indexOf(hoverEl);
   if (srcPos === -1 || hoverPos === -1 || srcPos === hoverPos) return;
 
+  // Snap every row to its true flow position first. Without this, a fast
+  // drag across several rows triggers a new move while the previous
+  // row's transition is still mid-flight — getBoundingClientRect() then
+  // reads a transformed, not-yet-settled position, and the stacked
+  // transitions fight each other (the rapid-flicker bug reported in
+  // real use). Snapping first guarantees every measurement starts clean.
+  items.forEach(el => { el.style.transition = 'none'; el.style.transform = ''; });
+
   const firstRects = new Map();
   items.forEach(el => { if (el !== srcEl) firstRects.set(el, el.getBoundingClientRect()); });
 
@@ -1657,7 +1669,6 @@ function liveMoveTo(srcEl, hoverEl) {
     const last = el.getBoundingClientRect();
     const dy = first.top - last.top;
     if (Math.abs(dy) > 0.5) {
-      el.style.transition = 'none';
       el.style.transform = `translateY(${dy}px)`;
       el.getBoundingClientRect(); // force reflow so the transition below applies
       el.style.transition = 'transform 0.18s ease';
@@ -1682,7 +1693,24 @@ function finishDrag(srcIndexAtStart) {
   const finalPos = srcEl ? items.indexOf(srcEl) : -1;
   if (finalPos !== -1 && finalPos !== srcIndexAtStart) {
     reorderLines(srcIndexAtStart, finalPos);
+    flashMoved(finalPos);
   }
+}
+
+// Briefly highlights the row that just landed in a new spot, so it's
+// easy to track at a glance which line moved and where. Quick to
+// appear, lingers a moment, then fades — not tied to .changed/.flagged,
+// which mean something different (AI-edited / needs review).
+function flashMoved(index) {
+  const el = document.querySelectorAll('.line-item')[index];
+  if (!el) return;
+  el.style.transition = 'background 0.15s ease';
+  el.classList.add('just-moved');
+  setTimeout(() => {
+    el.style.transition = 'background 0.6s ease';
+    el.classList.remove('just-moved');
+    setTimeout(() => { el.style.transition = ''; }, 650);
+  }, 500);
 }
 
 // ════════════════════════════════════════════════════════════════
