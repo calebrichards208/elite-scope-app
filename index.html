@@ -1072,7 +1072,8 @@ let grantKey   = '';
 let allJobs    = [];
 let shownJobs  = [];
 let selectedJob    = null;
-let lines          = [];
+let lines          = []; // [{ id, text }] — id is stable across reorders/renders, see nextLineId
+let nextLineId     = 1;
 let isListening    = false;
 let currentExhibit = null;
 let existingExhibits = [];
@@ -1103,12 +1104,12 @@ async function fileGithubIssue(type, { title, body }) {
 }
 
 // ── Smart dictation: track which textarea is focused ──
-let activeLine         = null; // { index, el } — currently focused scope line
+let activeLine         = null; // { id, el } — currently focused scope line
 let capturedActiveLine = null; // snapped at mic-press time, before blur fires
 
 // ── Drag & drop ──
-let dragSrcIndex = null; // HTML5 desktop drag
-let touchDrag    = null; // touch drag state
+let dragSrcId = null; // HTML5 desktop drag — line id, not position (positions shift live during drag)
+let touchDrag = null; // touch drag state — { srcId }
 
 
 // ════════════════════════════════════════════════════════════════
@@ -1127,7 +1128,7 @@ function init() {
     hide('setup-screen');
     show('main-screen');
     if (restoredSession && !restoredSession.jobId) {
-      lines = restoredSession.lines;
+      lines = restoredSession.lines.map(text => ({ id: nextLineId++, text }));
       document.getElementById('additional-notes').value = restoredSession.notes;
       restoredSession = null;
     }
@@ -1240,7 +1241,7 @@ async function loadJobs() {
     renderJobList(allJobs);
 
     if (restoredSession) {
-      const savedLines = restoredSession.lines;
+      const savedLines = restoredSession.lines.map(text => ({ id: nextLineId++, text }));
       const savedNotes = restoredSession.notes;
       const matchingJob = restoredSession.jobId
         ? allJobs.find(j => j.id === restoredSession.jobId)
@@ -1422,7 +1423,7 @@ function showExhibitBanner() {
 
     const lastExhibit = existingExhibits[existingExhibits.length - 1];
     const priceItem   = lastExhibit.items.find(i => i.unitPrice > 0);
-    lines = lastExhibit.items.map(i => i.name);
+    lines = lastExhibit.items.map(i => ({ id: nextLineId++, text: i.name }));
     renderLines();
     if (priceItem) document.getElementById('total-price').value = priceItem.unitPrice;
 
@@ -1471,7 +1472,7 @@ function addLine(raw) {
   if (!text) return;
   text = text.charAt(0).toUpperCase() + text.slice(1);
   text = text.replace(/\.+$/, '');
-  lines.push(text);
+  lines.push({ id: nextLineId++, text });
   renderLines();
   if (lines.length === 1) {
     document.getElementById('dot-2').classList.add('done');
@@ -1480,17 +1481,21 @@ function addLine(raw) {
   saveSession();
 }
 
-// Insert a blank line above the given index and focus it
-function insertLineAbove(index) {
-  lines.splice(index, 0, '');
-  changedIndices = new Set([...changedIndices].map(i => i >= index ? i + 1 : i));
-  flaggedLines    = new Map([...flaggedLines].map(([i, v]) => [i >= index ? i + 1 : i, v]));
+// Insert a blank line above the given line (by id) and focus it. Resolves
+// the insertion position fresh from the id rather than trusting a
+// position baked in at render time, since rapid clicks can fire this
+// before an earlier render's positions are still current.
+function insertLineAbove(id) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
+  const newLine = { id: nextLineId++, text: '' };
+  lines.splice(i, 0, newLine);
+  changedIndices = new Set([...changedIndices].map(idx => idx >= i ? idx + 1 : idx));
+  flaggedLines    = new Map([...flaggedLines].map(([idx, v]) => [idx >= i ? idx + 1 : idx, v]));
   renderLines();
   // Focus the new empty textarea so user can type or dictate immediately
-  const textareas = document.querySelectorAll('.line-text');
-  if (textareas[index]) {
-    textareas[index].focus();
-  }
+  const newEl = document.querySelector(`.line-item[data-id="${newLine.id}"] .line-text`);
+  if (newEl) newEl.focus();
   if (lines.length === 1) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
@@ -1511,7 +1516,9 @@ function reorderLines(fromIndex, toIndex) {
   saveSession();
 }
 
-function deleteLine(i) {
+function deleteLine(id) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
   lines.splice(i, 1);
   renderLines();
   if (!lines.length) {
@@ -1521,8 +1528,16 @@ function deleteLine(i) {
   saveSession();
 }
 
-function updateLine(i, val) {
-  lines[i] = val;
+// Resolves the line's current position fresh from its id every call —
+// this (not a position baked in at render time) is what keeps a rapid
+// burst of inserts/deletes from ever writing into the wrong line: an id
+// always finds the right line wherever it currently sits, even if several
+// re-renders happened between when this handler was attached and when it
+// actually fires.
+function updateLine(id, val) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
+  lines[i].text = val;
   if (changedIndices.has(i)) {
     changedIndices.delete(i);
     const items = document.querySelectorAll('.line-item');
@@ -1540,7 +1555,9 @@ function updateLine(i, val) {
   saveSession();
 }
 
-function checkFlaggedCorrection(i, val) {
+function checkFlaggedCorrection(id, val) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
   const flag = flaggedLines.get(i);
   if (flag && val.trim() !== flag.aiText.trim()) {
     const issue = buildCorrectionIssue({ aiReturned: flag.aiText, correctedTo: val.trim(), reason: flag.reason });
@@ -1550,7 +1567,7 @@ function checkFlaggedCorrection(i, val) {
 
 function saveSession() {
   const snapshot = buildSessionSnapshot({
-    lines,
+    lines: lines.map(l => l.text),
     notes: document.getElementById('additional-notes').value,
     jobId: selectedJob ? selectedJob.id : null
   });
@@ -1572,24 +1589,24 @@ function renderLines() {
     const flag = flaggedLines.get(i);
     return `
     <li class="line-item${changedIndices.has(i) ? ' changed' : ''}${flag ? ' flagged' : ''}"
-        data-index="${i}"
-        ondragover="onDragOver(event,${i})"
-        ondrop="onDrop(event,${i})">
+        data-id="${line.id}"
+        ondragover="onDragOver(event,${line.id})"
+        ondrop="onDrop(event,${line.id})">
       <div class="line-row">
-        <button class="insert-above-btn" onclick="insertLineAbove(${i})" title="Insert line above">+</button>
+        <button class="insert-above-btn" onclick="insertLineAbove(${line.id})" title="Insert line above">+</button>
         <div class="drag-handle"
              draggable="true"
-             ondragstart="onDragStart(event,${i})"
+             ondragstart="onDragStart(event,${line.id})"
              ondragend="onDragEnd(event)"
-             ontouchstart="onTouchDragStart(event,${i})"
+             ontouchstart="onTouchDragStart(event,${line.id})"
              title="Drag to reorder">⠿</div>
         <div class="line-num">${i + 1}</div>
         <textarea class="line-text" rows="1" placeholder="Edit this line..."
-          oninput="autoResize(this); updateLine(${i}, this.value)"
-          onblur="checkFlaggedCorrection(${i}, this.value); updateLine(${i}, this.value); clearActiveLine(${i})"
-          onfocus="setActiveLine(${i}, this)"
-        >${escHtml(line)}</textarea>
-        <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
+          oninput="autoResize(this); updateLine(${line.id}, this.value)"
+          onblur="checkFlaggedCorrection(${line.id}, this.value); updateLine(${line.id}, this.value); clearActiveLine(${line.id})"
+          onfocus="setActiveLine(${line.id}, this)"
+        >${escHtml(line.text)}</textarea>
+        <button class="line-del" onclick="deleteLine(${line.id})" title="Remove line">×</button>
       </div>
       ${flag ? `<div class="flag-reason">⚠ ${escHtml(flag.reason)}</div>` : ''}
     </li>
@@ -1608,16 +1625,16 @@ function autoResize(el) {
 // ════════════════════════════════════════════════════════════════
 
 // Called when a scope line textarea gains focus
-function setActiveLine(i, el) {
-  activeLine = { index: i, el };
+function setActiveLine(id, el) {
+  activeLine = { id, el };
   document.getElementById('mic-hint').textContent = 'Hold mic to insert at cursor';
   document.querySelector('.mic-zone').classList.add('pinned');
 }
 
 // Called on blur — delayed so mic mousedown can capture first
-function clearActiveLine(i) {
+function clearActiveLine(id) {
   setTimeout(() => {
-    if (activeLine && activeLine.index === i) {
+    if (activeLine && activeLine.id === id) {
       activeLine = null;
       document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
       document.querySelector('.mic-zone').classList.remove('pinned');
@@ -1628,18 +1645,17 @@ function clearActiveLine(i) {
 
 // Removes any scope line left completely blank (e.g. tapped + then
 // clicked away without typing or dictating), except whichever one is
-// currently focused or mid-dictation. Re-scans the live `lines` array
-// fresh each time rather than tracking a specific captured DOM
-// element — tapping + again before this fires re-renders the whole
-// list, which silently invalidated an element-based check and let
-// blank lines pile up when + was tapped repeatedly. This state-based
-// sweep stays correct no matter how many renders happened in between.
+// currently focused or mid-dictation. Keys off the line's id (not a
+// position) for the same reason every handler in this file does now —
+// a rapid burst of + clicks re-renders the list between when this was
+// queued and when it fires, and a position captured earlier would no
+// longer point at the right line by then.
 function cleanupBlankLines() {
-  const keepIndex = activeLine ? activeLine.index : (capturedActiveLine ? capturedActiveLine.index : null);
+  const keepId = activeLine ? activeLine.id : (capturedActiveLine ? capturedActiveLine.id : null);
   let changed = false;
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (i === keepIndex) continue;
-    if (lines[i].trim() === '') {
+    if (lines[i].id === keepId) continue;
+    if (lines[i].text.trim() === '') {
       lines.splice(i, 1);
       changed = true;
     }
@@ -1748,18 +1764,21 @@ function liveStepToward(srcEl, hoverEl, cursorY) {
 // single array move — a continuous drag only ever moves the one
 // dragged row relative to the others, so one reorderLines() call
 // reflects the whole gesture's end state, no matter how many rows
-// it lived-shifted past along the way.
-function finishDrag(srcIndexAtStart) {
+// it lived-shifted past along the way. Both endpoints are resolved
+// fresh here (by id, not a position captured at drag-start), so this
+// stays correct even if something else changed the list mid-drag.
+function finishDrag(srcId) {
   const items = [...document.querySelectorAll('.line-item')];
   items.forEach(el => {
     el.classList.remove('dragging');
     el.style.transform = '';
     el.style.transition = '';
   });
-  const srcEl = document.querySelector(`.line-item[data-index="${srcIndexAtStart}"]`);
+  const srcEl = document.querySelector(`.line-item[data-id="${srcId}"]`);
   const finalPos = srcEl ? items.indexOf(srcEl) : -1;
-  if (finalPos !== -1 && finalPos !== srcIndexAtStart) {
-    reorderLines(srcIndexAtStart, finalPos);
+  const fromIndex = lines.findIndex(l => l.id === srcId);
+  if (finalPos !== -1 && fromIndex !== -1 && finalPos !== fromIndex) {
+    reorderLines(fromIndex, finalPos);
     flashMoved(finalPos);
   }
 }
@@ -1783,52 +1802,52 @@ function flashMoved(index) {
 // ════════════════════════════════════════════════════════════════
 //  DRAG & DROP — desktop (HTML5)
 // ════════════════════════════════════════════════════════════════
-function onDragStart(e, index) {
-  dragSrcIndex = index;
+function onDragStart(e, id) {
+  dragSrcId = id;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', String(index));
-  const items = document.querySelectorAll('.line-item');
+  e.dataTransfer.setData('text/plain', String(id));
+  const srcEl = document.querySelector(`.line-item[data-id="${id}"]`);
   // Use the whole line as the drag ghost (not just the small drag handle,
   // which is the default since that's the element with draggable="true").
-  if (items[index]) e.dataTransfer.setDragImage(items[index], 20, 20);
+  if (srcEl) e.dataTransfer.setDragImage(srcEl, 20, 20);
   // Delay adding the dimming class so the ghost image (captured above)
   // still looks like the normal, undimmed row.
   setTimeout(() => {
-    if (items[index]) items[index].classList.add('dragging');
+    if (srcEl) srcEl.classList.add('dragging');
   }, 0);
 }
 
-function onDragOver(e, index) {
-  if (dragSrcIndex === null) return;
+function onDragOver(e, id) {
+  if (dragSrcId === null) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
-  liveStepToward(document.querySelector(`.line-item[data-index="${dragSrcIndex}"]`), e.currentTarget, e.clientY);
+  liveStepToward(document.querySelector(`.line-item[data-id="${dragSrcId}"]`), e.currentTarget, e.clientY);
 }
 
-function onDrop(e, index) {
+function onDrop(e, id) {
   e.preventDefault();
-  if (dragSrcIndex !== null) finishDrag(dragSrcIndex);
-  dragSrcIndex = null;
+  if (dragSrcId !== null) finishDrag(dragSrcId);
+  dragSrcId = null;
 }
 
 function onDragEnd(e) {
   // Covers cancelled drags (dropped outside any row, or Esc) — onDrop
-  // already nulled dragSrcIndex if drop fired, so this is a no-op then.
-  if (dragSrcIndex !== null) finishDrag(dragSrcIndex);
-  dragSrcIndex = null;
+  // already nulled dragSrcId if drop fired, so this is a no-op then.
+  if (dragSrcId !== null) finishDrag(dragSrcId);
+  dragSrcId = null;
 }
 
 // ════════════════════════════════════════════════════════════════
 //  DRAG & DROP — mobile (touch)
 // ════════════════════════════════════════════════════════════════
-function onTouchDragStart(e, index) {
+function onTouchDragStart(e, id) {
   e.preventDefault();
   e.stopPropagation();
 
-  touchDrag = { srcIndex: index };
+  touchDrag = { srcId: id };
 
-  const items = document.querySelectorAll('.line-item');
-  if (items[index]) items[index].classList.add('dragging');
+  const srcEl = document.querySelector(`.line-item[data-id="${id}"]`);
+  if (srcEl) srcEl.classList.add('dragging');
   if (navigator.vibrate) navigator.vibrate(30); // light haptic
 
   // Attach move/end to document so they fire even if finger leaves the handle
@@ -1841,7 +1860,7 @@ function onTouchDragMove(e) {
   e.preventDefault(); // prevent page scroll while dragging
 
   const touch = e.touches[0];
-  const srcEl = document.querySelector(`.line-item[data-index="${touchDrag.srcIndex}"]`);
+  const srcEl = document.querySelector(`.line-item[data-id="${touchDrag.srcId}"]`);
 
   // Find which item the finger is hovering over by midpoint
   let hoverEl = null;
@@ -1860,7 +1879,7 @@ function onTouchDragEnd(e) {
   document.removeEventListener('touchend',  onTouchDragEnd);
 
   if (!touchDrag) return;
-  finishDrag(touchDrag.srcIndex);
+  finishDrag(touchDrag.srcId);
   touchDrag = null;
 }
 
@@ -1875,7 +1894,7 @@ async function reviewWithAI() {
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0 auto"></div>';
 
-  const numbered  = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
+  const numbered  = lines.map((l, i) => `${i + 1}. ${l.text}`).join('\n');
   const notesVal  = document.getElementById('additional-notes').value.trim();
   const notesSection = notesVal
     ? `\n\nADDITIONAL NOTES (fix grammar/phrasing only, keep as bullet lines):\n${notesVal}`
@@ -1916,14 +1935,17 @@ async function reviewWithAI() {
     changedIndices = new Set();
     flaggedLines    = new Map();
     reviewedLines.forEach((item, i) => {
-      if (item.text.toLowerCase() !== lines[i].trim().toLowerCase()) {
+      if (item.text.toLowerCase() !== lines[i].text.trim().toLowerCase()) {
         changedIndices.add(i);
       }
       if (item.flagged) {
         flaggedLines.set(i, { reason: item.reason, aiText: item.text });
       }
     });
-    lines = reviewedLines.map(item => item.text);
+    // Same count/order as the original lines (enforced by
+    // parseReviewToolInput), so each reviewed entry keeps its
+    // original line's id — only the text changes.
+    lines = reviewedLines.map((item, i) => ({ id: lines[i].id, text: item.text }));
     renderLines();
     saveSession();
 
@@ -2024,7 +2046,8 @@ async function transcribeRecording() {
     if (transcript) {
       if (capturedActiveLine) {
         insertAtCursor(capturedActiveLine.el, transcript);
-        lines[capturedActiveLine.index] = capturedActiveLine.el.value;
+        const idx = lines.findIndex(l => l.id === capturedActiveLine.id);
+        if (idx !== -1) lines[idx].text = capturedActiveLine.el.value;
         autoResize(capturedActiveLine.el);
         saveSession();
       } else {
@@ -2225,7 +2248,7 @@ async function submitToJobTread() {
       const params  = {
         jobId:        selectedJob.id,
         costGroupId,
-        name:         lines[i],
+        name:         lines[i].text,
         showQuantity: false,
         costCodeId,
         costTypeId
