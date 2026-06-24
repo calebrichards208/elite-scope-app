@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Scope Dictation — Elite Construction</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -23,14 +23,24 @@
     3. Enter the grant key when prompted — it's saved on that device
 
   CORS NOTE:
-    If you see "Failed to fetch" errors, JobTread's API may block
-    direct browser calls. Solution: deploy a tiny proxy (see bottom
-    of this file for a ready-to-use Netlify function). Then enter
-    your proxy URL in Settings.
+    JobTread allows direct browser calls — no proxy is configured or
+    needed. If that ever changes (a "Failed to fetch" / CORS error on
+    the job-loading screen), the fix is adding a small relay function
+    under /functions, the same pattern already used for /transcribe
+    and /github-issue.
+
+  TRANSCRIPTION & FEEDBACK:
+    Voice dictation and the feedback/correction logging use two small
+    Cloudflare Worker Functions in /functions — they deploy automatically
+    with the rest of this site, no separate setup needed on Sergey's end.
+    The GitHub issue logging needs a GITHUB_ISSUE_TOKEN environment
+    variable set once in the Cloudflare dashboard (Settings →
+    Variables and Secrets) by whoever administers the site.
 
   HOSTING:
-    Drag this single file to netlify.com/drop for instant free hosting.
-    Works on any device with a browser. No maintenance required.
+    This repo is connected to Cloudflare Workers (with static assets) —
+    pushing to the main branch deploys automatically. No manual hosting
+    steps needed.
 
   JOBTREAD API:
     Uses the Pave Query API at https://api.jobtread.com/pave
@@ -80,6 +90,17 @@ h1, h2, .label {
 /* ── Layout Utilities ─────────────────────────────────────────── */
 .hidden { display: none !important; }
 
+/* Caps the app's reading width on wide desktop monitors so it doesn't
+   stretch into an unreadably long line, while staying full-width (no
+   visible effect) on phones and tablets, where 100% is already
+   narrower than this cap. Applied identically to .modal-sheet below
+   so the feedback/settings modals never look inconsistent with the
+   app behind them. */
+#main-screen {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
 /* ── Header ───────────────────────────────────────────────────── */
 .header {
   background: var(--navy);
@@ -92,7 +113,7 @@ h1, h2, .label {
   z-index: 20;
 }
 .header-left h1 {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--white);
   line-height: 1;
@@ -110,10 +131,10 @@ h1, h2, .label {
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.12);
   color: var(--slate-lt);
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 18px;
   display: flex; align-items: center; justify-content: center;
   transition: background 0.15s;
 }
@@ -195,7 +216,7 @@ h1, h2, .label {
 }
 .job-item:last-child { border-bottom: none; }
 .job-item:hover, .job-item:active { background: var(--amber-lt); }
-.job-name { font-size: 14px; font-weight: 500; color: var(--navy); }
+.job-name { font-size: 15px; font-weight: 500; color: var(--navy); }
 .job-meta { font-size: 12px; color: var(--slate-lt); margin-top: 2px; }
 
 .job-list-status {
@@ -233,15 +254,17 @@ h1, h2, .label {
 
 .line-item {
   position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   padding: 10px 0;
   border-bottom: 1px solid var(--silver);
   animation: slideIn 0.18s ease;
   transition: background 0.1s, border-top 0.1s;
 }
 .line-item:last-child { border-bottom: none; }
+.line-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
 
 @keyframes slideIn {
   from { opacity: 0; transform: translateY(-6px); }
@@ -253,11 +276,11 @@ h1, h2, .label {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  width: 16px;
+  min-width: 22px;
+  width: 22px;
   cursor: grab;
   color: var(--silver);
-  font-size: 14px;
+  font-size: 18px;
   padding: 0;
   margin-top: 6px;
   touch-action: none;
@@ -302,9 +325,9 @@ h1, h2, .label {
   background: var(--amber-lt);
   border-radius: 6px;
 }
-.line-item.drag-target {
-  border-top: 2.5px solid var(--amber) !important;
-  padding-top: 9px;
+.line-item.just-moved {
+  background: var(--amber-lt);
+  border-radius: 6px;
 }
 
 .line-num {
@@ -322,15 +345,15 @@ h1, h2, .label {
 }
 .line-text {
   flex: 1;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   font-family: 'DM Sans', sans-serif;
   color: var(--navy);
   border: 1.5px solid transparent;
   background: transparent;
   resize: none;
-  min-height: 28px;
-  padding: 4px 8px;
+  min-height: 32px;
+  padding: 6px 10px;
   border-radius: 6px;
   overflow: hidden;
   transition: border-color 0.15s, background 0.15s;
@@ -345,9 +368,9 @@ h1, h2, .label {
   border: none;
   color: var(--silver);
   cursor: pointer;
-  font-size: 20px;
+  font-size: 24px;
   line-height: 1;
-  padding: 2px 4px;
+  padding: 6px 8px;
   margin-top: 2px;
   transition: color 0.15s;
   flex-shrink: 0;
@@ -366,6 +389,19 @@ h1, h2, .label {
   border-color: var(--amber);
   color: var(--white);
 }
+.line-item.flagged {
+  border: 1.5px dashed var(--amber);
+  border-radius: 6px;
+  margin: 2px -4px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.flag-reason {
+  font-size: 11px;
+  color: var(--amber-dk);
+  padding: 2px 8px 4px 38px;
+  font-style: italic;
+}
 
 .empty-lines {
   text-align: center;
@@ -383,6 +419,27 @@ h1, h2, .label {
   padding: 20px 0 8px;
   border-top: 1px solid var(--silver);
   margin-top: 8px;
+}
+/* While a scope line is focused for editing on phone/tablet, pin the
+   mic bar to the bottom of the screen so the on-screen keyboard can
+   never push it out of view — the problem reported was having to
+   scroll down past the keyboard to find it mid-correction. Desktop
+   has no on-screen keyboard to occlude it, so this only applies below
+   the breakpoint where that's actually a problem. */
+@media (max-width: 900px) {
+  .mic-zone.pinned {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0;
+    width: 100%;
+    max-width: 760px;
+    background: var(--white);
+    box-shadow: 0 -2px 12px rgba(15,23,42,0.12);
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    margin-top: 0;
+    z-index: 30;
+  }
 }
 .mic-btn {
   width: 76px; height: 76px;
@@ -414,7 +471,7 @@ h1, h2, .label {
 .mic-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .mic-hint {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--slate-lt);
   margin-top: 10px;
   font-weight: 500;
@@ -631,12 +688,14 @@ h1, h2, .label {
   z-index: 50;
   display: flex;
   align-items: flex-end;
+  justify-content: center;
 }
 .modal-sheet {
   background: var(--white);
   border-radius: 20px 20px 0 0;
   padding: 24px;
   width: 100%;
+  max-width: 760px;
   max-height: 85vh;
   overflow-y: auto;
 }
@@ -761,12 +820,11 @@ h1, h2, .label {
       Only needed for the "Review with AI" button.
     </div>
 
-    <label class="field-label" for="setup-proxy">Proxy URL <span style="font-weight:400;text-transform:none;font-family:DM Sans">(optional)</span></label>
-    <input type="url" id="setup-proxy" class="setup-input" placeholder="https://yoursite.netlify.app/.netlify/functions/jt" autocomplete="off">
+    <label class="field-label" for="setup-openai">OpenAI API Key <span style="font-weight:400;text-transform:none;font-family:DM Sans">(needed for voice dictation)</span></label>
+    <input type="text" id="setup-openai" class="setup-input" placeholder="sk-..." autocomplete="off" spellcheck="false">
     <div class="field-hint">
-      Leave blank to try a direct connection. If you see CORS errors
-      in the browser console, you'll need to add a Netlify proxy URL.
-      See the comment block at the top of this file for setup instructions.
+      From <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>.
+      Powers transcription for the microphone buttons.
     </div>
 
     <button class="setup-save-btn" onclick="saveSetup()">Save &amp; Open App ›</button>
@@ -785,7 +843,14 @@ h1, h2, .label {
       <h1>Elite<span style="color:var(--amber)">+</span></h1>
       <div class="sub">Scope Dictation</div>
     </div>
-    <button class="settings-btn" onclick="openSettings()" title="Settings">⚙</button>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="settings-btn" id="feedback-btn" onclick="openFeedbackModal()"
+        title="Send feedback about the app"
+        style="width:auto;padding:0 12px;gap:6px;font-size:13px;font-weight:500;color:var(--slate-lt)">
+        💬 Feedback
+      </button>
+      <button class="settings-btn" onclick="openSettings()" title="Settings">⚙</button>
+    </div>
   </div>
 
   <!-- Progress dots -->
@@ -881,7 +946,7 @@ h1, h2, .label {
     <p style="font-size:12px;color:var(--slate-lt);margin-bottom:8px" id="notes-hint-text">
       Add job-specific notes below. Tap mic and speak — each pause = new bullet point.
     </p>
-    <textarea id="additional-notes" rows="3" placeholder="e.g. Owner to pay electrician directly for all electrical work"
+    <textarea id="additional-notes" rows="3" placeholder="e.g. Owner to pay electrician directly for all electrical work" oninput="saveSession()"
       style="width:100%;padding:10px 12px;border:1.5px solid var(--silver);border-radius:6px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--navy);resize:vertical;background:var(--bg);"
       onfocus="this.style.borderColor='var(--amber)'" onblur="this.style.borderColor='var(--silver)'"></textarea>
     <div style="display:flex;flex-direction:column;align-items:center;padding:16px 0 4px;border-top:1px solid var(--silver);margin-top:10px;">
@@ -948,12 +1013,9 @@ h1, h2, .label {
     <input type="text" id="s-anthropic" class="settings-input" placeholder="sk-ant-..." spellcheck="false" autocomplete="off">
     <div class="settings-hint">From console.anthropic.com → API Keys. Powers the "Review with AI" button.</div>
 
-    <label class="settings-field-label" for="s-proxy">Proxy URL</label>
-    <input type="url" id="s-proxy" class="settings-input" placeholder="Leave blank for direct connection">
-    <div class="settings-hint">
-      Only needed if you see CORS errors. Deploy the Netlify function
-      from the comment block at the top of this file, then paste the URL here.
-    </div>
+    <label class="settings-field-label" for="s-openai">OpenAI API Key</label>
+    <input type="text" id="s-openai" class="settings-input" placeholder="sk-..." spellcheck="false" autocomplete="off">
+    <div class="settings-hint">From platform.openai.com/api-keys. Powers voice dictation (the microphone buttons).</div>
 
     <button class="settings-save-btn" onclick="saveSettings()">Save Settings</button>
     <div style="text-align:center;font-size:12px;color:var(--slate-lt);margin: 8px 0 4px">App version 1.1 — Elite Construction + Remodeling</div>
@@ -961,10 +1023,45 @@ h1, h2, .label {
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════
+     FEEDBACK MODAL
+═══════════════════════════════════════════════════ -->
+<div id="feedback-modal" class="modal-backdrop hidden" onclick="if(event.target===this)closeFeedbackModal()">
+  <div class="modal-sheet">
+    <div class="modal-topbar">
+      <div class="modal-title">Send Feedback</div>
+      <button class="modal-close" onclick="closeFeedbackModal()">✕</button>
+    </div>
+    <div class="settings-hint">Tell us about a problem or an idea. Only Caleb will see this.</div>
+
+    <textarea id="feedback-text" rows="4" placeholder="Type, or hold the mic below to speak..."
+      style="width:100%;padding:10px 12px;border:1.5px solid var(--silver);border-radius:6px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--navy);resize:vertical;background:var(--bg);"
+      onfocus="this.style.borderColor='var(--amber)'" onblur="this.style.borderColor='var(--silver)'"></textarea>
+
+    <div style="display:flex;flex-direction:column;align-items:center;padding:14px 0 4px;">
+      <button class="mic-btn" id="feedback-modal-mic-btn"
+        onmousedown="startFeedbackMic()" onmouseup="stopFeedbackMic()" onmouseleave="stopFeedbackMic()"
+        ontouchstart="e=arguments[0];e.preventDefault();startFeedbackMic()" ontouchend="stopFeedbackMic()"
+        title="Hold to speak">
+        🎤
+      </button>
+      <div class="mic-hint" id="feedback-modal-mic-hint">Hold to speak, release to fill in text above</div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:10px">
+      <button style="flex:1;padding:12px;background:none;border:1.5px solid var(--silver);color:var(--slate);border-radius:var(--radius-sm);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer" onclick="closeFeedbackModal()">Cancel</button>
+      <button class="settings-save-btn" style="flex:1;margin-bottom:0" onclick="sendFeedback()">Send</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast notification -->
 <div id="toast" class="toast"></div>
 
 
+<script src="lib/sessionStore.js"></script>
+<script src="lib/reviewResponse.js"></script>
+<script src="lib/githubIssue.js"></script>
 <script>
 'use strict';
 
@@ -972,31 +1069,47 @@ h1, h2, .label {
 //  STATE
 // ════════════════════════════════════════════════════════════════
 let grantKey   = '';
-let proxyUrl   = '';
 let allJobs    = [];
 let shownJobs  = [];
 let selectedJob    = null;
-let lines          = [];
+let lines          = []; // [{ id, text }] — id is stable across reorders/renders, see nextLineId
+let nextLineId     = 1;
 let isListening    = false;
 let currentExhibit = null;
 let existingExhibits = [];
 let existingNotesId  = null;
-let recognition = null;
-let pendingTranscript = '';
+let mediaRecorder = null;
+let mediaChunks    = [];
+let mediaStream    = null;
 let changedIndices = new Set();
+let flaggedLines    = new Map(); // index -> { reason, aiText }
 let buttonHeld = false;
 let orgId        = null;
 let costCodeId   = '22PEaNuVctaf';
 let costTypeId   = '22PU7gmNf9aq';
 let anthropicKey = '';
+let openaiKey     = '';
+let restoredSession = null; // set once in init(), consumed once jobs/lines are ready
+
+async function fileGithubIssue(type, { title, body }) {
+  try {
+    await fetch('/github-issue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type, title, body })
+    });
+  } catch (e) {
+    console.warn('Could not file GitHub issue:', e.message);
+  }
+}
 
 // ── Smart dictation: track which textarea is focused ──
-let activeLine         = null; // { index, el } — currently focused scope line
+let activeLine         = null; // { id, el } — currently focused scope line
 let capturedActiveLine = null; // snapped at mic-press time, before blur fires
 
 // ── Drag & drop ──
-let dragSrcIndex = null; // HTML5 desktop drag
-let touchDrag    = null; // touch drag state
+let dragSrcId = null; // HTML5 desktop drag — line id, not position (positions shift live during drag)
+let touchDrag = null; // touch drag state — { srcId }
 
 
 // ════════════════════════════════════════════════════════════════
@@ -1004,8 +1117,9 @@ let touchDrag    = null; // touch drag state
 // ════════════════════════════════════════════════════════════════
 function init() {
   grantKey     = localStorage.getItem('ec_grant') || '';
-  proxyUrl     = localStorage.getItem('ec_proxy') || '';
   anthropicKey = localStorage.getItem('ec_anthropic') || '';
+  openaiKey    = localStorage.getItem('ec_openai') || '';
+  restoredSession = restoreSession(localStorage.getItem(SESSION_STORAGE_KEY));
 
   if (!grantKey) {
     show('setup-screen');
@@ -1013,6 +1127,11 @@ function init() {
   } else {
     hide('setup-screen');
     show('main-screen');
+    if (restoredSession && !restoredSession.jobId) {
+      lines = restoredSession.lines.map(text => ({ id: nextLineId++, text }));
+      document.getElementById('additional-notes').value = restoredSession.notes;
+      restoredSession = null;
+    }
     renderLines();
     loadJobs();
     initSpeech();
@@ -1024,15 +1143,15 @@ function init() {
 // ════════════════════════════════════════════════════════════════
 function saveSetup() {
   const key     = document.getElementById('setup-key').value.trim();
-  const proxy   = document.getElementById('setup-proxy').value.trim();
   const anthKey = document.getElementById('setup-anthropic').value.trim();
+  const oaiKey  = document.getElementById('setup-openai').value.trim();
   if (!key) { toast('Please enter your grant key', 'err'); return; }
   grantKey     = key;
-  proxyUrl     = proxy;
   anthropicKey = anthKey;
+  openaiKey    = oaiKey;
   localStorage.setItem('ec_grant',      key);
-  localStorage.setItem('ec_proxy',      proxy);
   localStorage.setItem('ec_anthropic',  anthKey);
+  localStorage.setItem('ec_openai',     oaiKey);
   hide('setup-screen');
   show('main-screen');
   renderLines();
@@ -1045,19 +1164,19 @@ function saveSetup() {
 // ════════════════════════════════════════════════════════════════
 function openSettings() {
   document.getElementById('s-key').value       = grantKey;
-  document.getElementById('s-proxy').value     = proxyUrl;
   document.getElementById('s-anthropic').value = anthropicKey;
+  document.getElementById('s-openai').value    = openaiKey;
   show('settings-modal');
 }
 function closeSettings() { hide('settings-modal'); }
 
 function saveSettings() {
   grantKey     = document.getElementById('s-key').value.trim();
-  proxyUrl     = document.getElementById('s-proxy').value.trim();
   anthropicKey = document.getElementById('s-anthropic').value.trim();
+  openaiKey    = document.getElementById('s-openai').value.trim();
   localStorage.setItem('ec_grant',      grantKey);
-  localStorage.setItem('ec_proxy',      proxyUrl);
   localStorage.setItem('ec_anthropic',  anthropicKey);
+  localStorage.setItem('ec_openai',     openaiKey);
   closeSettings();
   toast('Settings saved');
   loadJobs();
@@ -1073,8 +1192,7 @@ function resetApp() {
 //  ── JT API ──
 // ════════════════════════════════════════════════════════════════
 async function jtPost(query) {
-  const url = proxyUrl || 'https://api.jobtread.com/pave';
-  const res = await fetch(url, {
+  const res = await fetch('https://api.jobtread.com/pave', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ query })
@@ -1122,12 +1240,28 @@ async function loadJobs() {
     allJobs = (data?.organization?.jobs?.nodes || []);
     renderJobList(allJobs);
 
+    if (restoredSession) {
+      const savedLines = restoredSession.lines.map(text => ({ id: nextLineId++, text }));
+      const savedNotes = restoredSession.notes;
+      const matchingJob = restoredSession.jobId
+        ? allJobs.find(j => j.id === restoredSession.jobId)
+        : null;
+      restoredSession = null;
+
+      if (matchingJob) {
+        await selectJob(matchingJob);
+      }
+      lines = savedLines;
+      document.getElementById('additional-notes').value = savedNotes;
+      renderLines();
+    }
+
   } catch (err) {
     const isCors = err.message.includes('Failed to fetch') || err.message.includes('NetworkError');
     listEl.innerHTML = `<div style="padding:14px;color:var(--red);font-size:13px;line-height:1.6">
       <strong>Could not load jobs</strong><br>
       ${isCors
-        ? 'CORS error — JobTread is blocking direct browser calls.<br>Add a Netlify proxy URL in Settings (see instructions at top of file).'
+        ? 'CORS error — JobTread is blocking direct browser calls. Contact whoever maintains this app.'
         : escHtml(err.message)
       }
     </div>`;
@@ -1175,7 +1309,11 @@ function filterJobs(q) {
 }
 
 async function pickJob(idx) {
-  selectedJob = shownJobs[idx];
+  return selectJob(shownJobs[idx]);
+}
+
+async function selectJob(job) {
+  selectedJob = job;
   document.getElementById('sel-job-name').textContent = selectedJob.name || 'Untitled Job';
   document.getElementById('sel-job-meta').textContent = selectedJob.number ? '#' + selectedJob.number : '';
   hide('job-picker');
@@ -1250,6 +1388,7 @@ async function pickJob(idx) {
   document.getElementById('dot-1').classList.remove('active');
   document.getElementById('dot-1').classList.add('done');
   document.getElementById('dot-2').classList.add('active');
+  saveSession();
 }
 
 function nextExhibitLetter(existingLetters) {
@@ -1284,7 +1423,7 @@ function showExhibitBanner() {
 
     const lastExhibit = existingExhibits[existingExhibits.length - 1];
     const priceItem   = lastExhibit.items.find(i => i.unitPrice > 0);
-    lines = lastExhibit.items.map(i => i.name);
+    lines = lastExhibit.items.map(i => ({ id: nextLineId++, text: i.name }));
     renderLines();
     if (priceItem) document.getElementById('total-price').value = priceItem.unitPrice;
 
@@ -1301,6 +1440,7 @@ function clearAllLines() {
   renderLines();
   document.getElementById('exhibit-banner-text').textContent =
     `Exhibit ${currentExhibit} — blank scope`;
+  saveSession();
 }
 
 function changeJob() {
@@ -1321,6 +1461,7 @@ function changeJob() {
   document.getElementById('dot-1').classList.remove('done');
   document.getElementById('dot-2').classList.remove('active');
   renderLines();
+  saveSession();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1331,28 +1472,35 @@ function addLine(raw) {
   if (!text) return;
   text = text.charAt(0).toUpperCase() + text.slice(1);
   text = text.replace(/\.+$/, '');
-  lines.push(text);
+  lines.push({ id: nextLineId++, text });
   renderLines();
   if (lines.length === 1) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
   }
+  saveSession();
 }
 
-// Insert a blank line above the given index and focus it
-function insertLineAbove(index) {
-  lines.splice(index, 0, '');
-  changedIndices = new Set([...changedIndices].map(i => i >= index ? i + 1 : i));
+// Insert a blank line above the given line (by id) and focus it. Resolves
+// the insertion position fresh from the id rather than trusting a
+// position baked in at render time, since rapid clicks can fire this
+// before an earlier render's positions are still current.
+function insertLineAbove(id) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
+  const newLine = { id: nextLineId++, text: '' };
+  lines.splice(i, 0, newLine);
+  changedIndices = new Set([...changedIndices].map(idx => idx >= i ? idx + 1 : idx));
+  flaggedLines    = new Map([...flaggedLines].map(([idx, v]) => [idx >= i ? idx + 1 : idx, v]));
   renderLines();
   // Focus the new empty textarea so user can type or dictate immediately
-  const textareas = document.querySelectorAll('.line-text');
-  if (textareas[index]) {
-    textareas[index].focus();
-  }
+  const newEl = document.querySelector(`.line-item[data-id="${newLine.id}"] .line-text`);
+  if (newEl) newEl.focus();
   if (lines.length === 1) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
   }
+  saveSession();
 }
 
 // Reorder lines array: move item at fromIndex to toIndex
@@ -1363,25 +1511,67 @@ function reorderLines(fromIndex, toIndex) {
   newLines.splice(toIndex, 0, item);
   lines = newLines;
   changedIndices.clear(); // clear highlights after reorder
+  flaggedLines.clear();
   renderLines();
+  saveSession();
 }
 
-function deleteLine(i) {
+function deleteLine(id) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
   lines.splice(i, 1);
   renderLines();
   if (!lines.length) {
     document.getElementById('dot-2').classList.remove('done');
     document.getElementById('dot-3').classList.remove('active');
   }
+  saveSession();
 }
 
-function updateLine(i, val) {
-  lines[i] = val;
+// Resolves the line's current position fresh from its id every call —
+// this (not a position baked in at render time) is what keeps a rapid
+// burst of inserts/deletes from ever writing into the wrong line: an id
+// always finds the right line wherever it currently sits, even if several
+// re-renders happened between when this handler was attached and when it
+// actually fires.
+function updateLine(id, val) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
+  lines[i].text = val;
   if (changedIndices.has(i)) {
     changedIndices.delete(i);
     const items = document.querySelectorAll('.line-item');
     if (items[i]) items[i].classList.remove('changed');
   }
+  if (flaggedLines.has(i)) {
+    flaggedLines.delete(i);
+    const items = document.querySelectorAll('.line-item');
+    if (items[i]) {
+      items[i].classList.remove('flagged');
+      const reasonEl = items[i].querySelector('.flag-reason');
+      if (reasonEl) reasonEl.remove();
+    }
+  }
+  saveSession();
+}
+
+function checkFlaggedCorrection(id, val) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1) return;
+  const flag = flaggedLines.get(i);
+  if (flag && val.trim() !== flag.aiText.trim()) {
+    const issue = buildCorrectionIssue({ aiReturned: flag.aiText, correctedTo: val.trim(), reason: flag.reason });
+    fileGithubIssue(issue.type, issue);
+  }
+}
+
+function saveSession() {
+  const snapshot = buildSessionSnapshot({
+    lines: lines.map(l => l.text),
+    notes: document.getElementById('additional-notes').value,
+    jobId: selectedJob ? selectedJob.id : null
+  });
+  localStorage.setItem(SESSION_STORAGE_KEY, serializeSession(snapshot));
 }
 
 function renderLines() {
@@ -1395,27 +1585,33 @@ function renderLines() {
     return;
   }
   document.getElementById('lines-edit-hint').classList.remove('hidden');
-  el.innerHTML = lines.map((line, i) => `
-    <li class="line-item${changedIndices.has(i) ? ' changed' : ''}"
-        data-index="${i}"
-        ondragover="onDragOver(event,${i})"
-        ondrop="onDrop(event,${i})">
-      <button class="insert-above-btn" onclick="insertLineAbove(${i})" title="Insert line above">+</button>
-      <div class="drag-handle"
-           draggable="true"
-           ondragstart="onDragStart(event,${i})"
-           ondragend="onDragEnd(event)"
-           ontouchstart="onTouchDragStart(event,${i})"
-           title="Drag to reorder">⠿</div>
-      <div class="line-num">${i + 1}</div>
-      <textarea class="line-text" rows="1" placeholder="Edit this line..."
-        oninput="autoResize(this); updateLine(${i}, this.value)"
-        onblur="updateLine(${i}, this.value); clearActiveLine(${i})"
-        onfocus="setActiveLine(${i}, this)"
-      >${escHtml(line)}</textarea>
-      <button class="line-del" onclick="deleteLine(${i})" title="Remove line">×</button>
+  el.innerHTML = lines.map((line, i) => {
+    const flag = flaggedLines.get(i);
+    return `
+    <li class="line-item${changedIndices.has(i) ? ' changed' : ''}${flag ? ' flagged' : ''}"
+        data-id="${line.id}"
+        ondragover="onDragOver(event,${line.id})"
+        ondrop="onDrop(event,${line.id})">
+      <div class="line-row">
+        <button class="insert-above-btn" onclick="insertLineAbove(${line.id})" title="Insert line above">+</button>
+        <div class="drag-handle"
+             draggable="true"
+             ondragstart="onDragStart(event,${line.id})"
+             ondragend="onDragEnd(event)"
+             ontouchstart="onTouchDragStart(event,${line.id})"
+             title="Drag to reorder">⠿</div>
+        <div class="line-num">${i + 1}</div>
+        <textarea class="line-text" rows="1" placeholder="Edit this line..."
+          oninput="autoResize(this); updateLine(${line.id}, this.value)"
+          onblur="checkFlaggedCorrection(${line.id}, this.value); updateLine(${line.id}, this.value); clearActiveLine(${line.id})"
+          onfocus="setActiveLine(${line.id}, this)"
+        >${escHtml(line.text)}</textarea>
+        <button class="line-del" onclick="deleteLine(${line.id})" title="Remove line">×</button>
+      </div>
+      ${flag ? `<div class="flag-reason">⚠ ${escHtml(flag.reason)}</div>` : ''}
     </li>
-  `).join('');
+  `;
+  }).join('');
   el.querySelectorAll('.line-text').forEach(autoResize);
 }
 
@@ -1429,19 +1625,45 @@ function autoResize(el) {
 // ════════════════════════════════════════════════════════════════
 
 // Called when a scope line textarea gains focus
-function setActiveLine(i, el) {
-  activeLine = { index: i, el };
+function setActiveLine(id, el) {
+  activeLine = { id, el };
   document.getElementById('mic-hint').textContent = 'Hold mic to insert at cursor';
+  document.querySelector('.mic-zone').classList.add('pinned');
 }
 
 // Called on blur — delayed so mic mousedown can capture first
-function clearActiveLine(i) {
+function clearActiveLine(id) {
   setTimeout(() => {
-    if (activeLine && activeLine.index === i) {
+    if (activeLine && activeLine.id === id) {
       activeLine = null;
       document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
+      document.querySelector('.mic-zone').classList.remove('pinned');
     }
+    cleanupBlankLines();
   }, 300);
+}
+
+// Removes any scope line left completely blank (e.g. tapped + then
+// clicked away without typing or dictating), except whichever one is
+// currently focused or mid-dictation. Keys off the line's id (not a
+// position) for the same reason every handler in this file does now —
+// a rapid burst of + clicks re-renders the list between when this was
+// queued and when it fires, and a position captured earlier would no
+// longer point at the right line by then.
+function cleanupBlankLines() {
+  const keepId = activeLine ? activeLine.id : (capturedActiveLine ? capturedActiveLine.id : null);
+  let changed = false;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].id === keepId) continue;
+    if (lines[i].text.trim() === '') {
+      lines.splice(i, 1);
+      changed = true;
+    }
+  }
+  if (changed) {
+    renderLines();
+    saveSession();
+  }
 }
 
 // Insert dictated text at the current cursor position / selection
@@ -1479,55 +1701,153 @@ function insertAtCursor(el, text) {
 }
 
 // ════════════════════════════════════════════════════════════════
+//  DRAG & DROP — shared live-reorder helper
+// ════════════════════════════════════════════════════════════════
+// Moves the dragged row exactly ONE slot at a time, toward whichever
+// row the cursor is currently over — never a multi-row jump straight
+// to wherever the cursor geometrically intersects. A swap only fires
+// once the cursor crosses the MIDPOINT of the neighboring row in that
+// row, not merely its edge: that dead zone around each boundary is
+// what stops a drag from flapping back and forth when the cursor sits
+// right at the line between two rows. This same one-step-at-a-time
+// model is also what lets a drag reliably reach the very first or
+// last slot — each step is a clean, deterministic single swap, so
+// there's nothing to overshoot or get stuck flapping on as it chains
+// through one row after another. FLIP-animates the displaced
+// neighbor. The underlying `lines` array is untouched until
+// drop/touchend commits the final position — this only ever reorders
+// DOM nodes for live visual feedback.
+function liveStepToward(srcEl, hoverEl, cursorY) {
+  if (!srcEl || !hoverEl || srcEl === hoverEl) return;
+  const items = [...document.querySelectorAll('.line-item')];
+  const srcPos = items.indexOf(srcEl);
+  const hoverPos = items.indexOf(hoverEl);
+  if (srcPos === -1 || hoverPos === -1 || srcPos === hoverPos) return;
+
+  const movingDown  = hoverPos > srcPos;
+  const neighborPos = movingDown ? srcPos + 1 : srcPos - 1;
+  const neighborEl  = items[neighborPos];
+  if (!neighborEl || neighborEl === srcEl) return;
+
+  const rect     = neighborEl.getBoundingClientRect();
+  const midpoint = rect.top + rect.height / 2;
+  if (movingDown  && cursorY < midpoint) return;
+  if (!movingDown && cursorY > midpoint) return;
+
+  // Snap every row to its true flow position first. Without this, a fast
+  // drag across several rows triggers a new move while the previous
+  // row's transition is still mid-flight — getBoundingClientRect() then
+  // reads a transformed, not-yet-settled position, and the stacked
+  // transitions fight each other (the rapid-flicker bug reported in
+  // real use). Snapping first guarantees every measurement starts clean.
+  items.forEach(el => { el.style.transition = 'none'; el.style.transform = ''; });
+
+  const firstRects = new Map();
+  items.forEach(el => { if (el !== srcEl) firstRects.set(el, el.getBoundingClientRect()); });
+
+  if (movingDown) neighborEl.after(srcEl);
+  else neighborEl.before(srcEl);
+
+  firstRects.forEach((first, el) => {
+    const last = el.getBoundingClientRect();
+    const dy = first.top - last.top;
+    if (Math.abs(dy) > 0.5) {
+      el.style.transform = `translateY(${dy}px)`;
+      el.getBoundingClientRect(); // force reflow so the transition below applies
+      el.style.transition = 'transform 0.18s ease';
+      el.style.transform = '';
+    }
+  });
+}
+
+// Reads the dragged row's final DOM position and commits it as a
+// single array move — a continuous drag only ever moves the one
+// dragged row relative to the others, so one reorderLines() call
+// reflects the whole gesture's end state, no matter how many rows
+// it lived-shifted past along the way. Both endpoints are resolved
+// fresh here (by id, not a position captured at drag-start), so this
+// stays correct even if something else changed the list mid-drag.
+function finishDrag(srcId) {
+  const items = [...document.querySelectorAll('.line-item')];
+  items.forEach(el => {
+    el.classList.remove('dragging');
+    el.style.transform = '';
+    el.style.transition = '';
+  });
+  const srcEl = document.querySelector(`.line-item[data-id="${srcId}"]`);
+  const finalPos = srcEl ? items.indexOf(srcEl) : -1;
+  const fromIndex = lines.findIndex(l => l.id === srcId);
+  if (finalPos !== -1 && fromIndex !== -1 && finalPos !== fromIndex) {
+    reorderLines(fromIndex, finalPos);
+    flashMoved(finalPos);
+  }
+}
+
+// Briefly highlights the row that just landed in a new spot, so it's
+// easy to track at a glance which line moved and where. Quick to
+// appear, lingers a moment, then fades — not tied to .changed/.flagged,
+// which mean something different (AI-edited / needs review).
+function flashMoved(index) {
+  const el = document.querySelectorAll('.line-item')[index];
+  if (!el) return;
+  el.style.transition = 'background 0.15s ease';
+  el.classList.add('just-moved');
+  setTimeout(() => {
+    el.style.transition = 'background 0.6s ease';
+    el.classList.remove('just-moved');
+    setTimeout(() => { el.style.transition = ''; }, 650);
+  }, 500);
+}
+
+// ════════════════════════════════════════════════════════════════
 //  DRAG & DROP — desktop (HTML5)
 // ════════════════════════════════════════════════════════════════
-function onDragStart(e, index) {
-  dragSrcIndex = index;
+function onDragStart(e, id) {
+  dragSrcId = id;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', String(index));
-  // Delay adding class so ghost image looks normal
+  e.dataTransfer.setData('text/plain', String(id));
+  const srcEl = document.querySelector(`.line-item[data-id="${id}"]`);
+  // Use the whole line as the drag ghost (not just the small drag handle,
+  // which is the default since that's the element with draggable="true").
+  if (srcEl) e.dataTransfer.setDragImage(srcEl, 20, 20);
+  // Delay adding the dimming class so the ghost image (captured above)
+  // still looks like the normal, undimmed row.
   setTimeout(() => {
-    const items = document.querySelectorAll('.line-item');
-    if (items[index]) items[index].classList.add('dragging');
+    if (srcEl) srcEl.classList.add('dragging');
   }, 0);
 }
 
-function onDragOver(e, index) {
-  if (dragSrcIndex === null) return;
+function onDragOver(e, id) {
+  if (dragSrcId === null) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = 'move';
-  document.querySelectorAll('.line-item').forEach((el, i) => {
-    el.classList.toggle('drag-target', i === index && i !== dragSrcIndex);
-  });
+  liveStepToward(document.querySelector(`.line-item[data-id="${dragSrcId}"]`), e.currentTarget, e.clientY);
 }
 
-function onDrop(e, index) {
+function onDrop(e, id) {
   e.preventDefault();
-  document.querySelectorAll('.line-item').forEach(el => el.classList.remove('drag-target', 'dragging'));
-  if (dragSrcIndex !== null && index !== dragSrcIndex) {
-    reorderLines(dragSrcIndex, index);
-  }
-  dragSrcIndex = null;
+  if (dragSrcId !== null) finishDrag(dragSrcId);
+  dragSrcId = null;
 }
 
 function onDragEnd(e) {
-  dragSrcIndex = null;
-  document.querySelectorAll('.line-item').forEach(el => {
-    el.classList.remove('dragging', 'drag-target');
-  });
+  // Covers cancelled drags (dropped outside any row, or Esc) — onDrop
+  // already nulled dragSrcId if drop fired, so this is a no-op then.
+  if (dragSrcId !== null) finishDrag(dragSrcId);
+  dragSrcId = null;
 }
 
 // ════════════════════════════════════════════════════════════════
 //  DRAG & DROP — mobile (touch)
 // ════════════════════════════════════════════════════════════════
-function onTouchDragStart(e, index) {
+function onTouchDragStart(e, id) {
   e.preventDefault();
   e.stopPropagation();
 
-  touchDrag = { srcIndex: index, dropIndex: index };
+  touchDrag = { srcId: id };
 
-  const items = document.querySelectorAll('.line-item');
-  if (items[index]) items[index].classList.add('dragging');
+  const srcEl = document.querySelector(`.line-item[data-id="${id}"]`);
+  if (srcEl) srcEl.classList.add('dragging');
   if (navigator.vibrate) navigator.vibrate(30); // light haptic
 
   // Attach move/end to document so they fire even if finger leaves the handle
@@ -1540,23 +1860,18 @@ function onTouchDragMove(e) {
   e.preventDefault(); // prevent page scroll while dragging
 
   const touch = e.touches[0];
-  const items = document.querySelectorAll('.line-item');
+  const srcEl = document.querySelector(`.line-item[data-id="${touchDrag.srcId}"]`);
 
   // Find which item the finger is hovering over by midpoint
-  let newDrop = touchDrag.srcIndex;
-  items.forEach((el, i) => {
+  let hoverEl = null;
+  document.querySelectorAll('.line-item').forEach(el => {
     const rect = el.getBoundingClientRect();
     if (touch.clientY >= rect.top && touch.clientY < rect.top + rect.height) {
-      newDrop = i;
+      hoverEl = el;
     }
   });
 
-  if (newDrop !== touchDrag.dropIndex) {
-    touchDrag.dropIndex = newDrop;
-    items.forEach((el, i) => {
-      el.classList.toggle('drag-target', i === newDrop && i !== touchDrag.srcIndex);
-    });
-  }
+  if (hoverEl) liveStepToward(srcEl, hoverEl, touch.clientY);
 }
 
 function onTouchDragEnd(e) {
@@ -1564,17 +1879,8 @@ function onTouchDragEnd(e) {
   document.removeEventListener('touchend',  onTouchDragEnd);
 
   if (!touchDrag) return;
-  const { srcIndex, dropIndex } = touchDrag;
-
-  document.querySelectorAll('.line-item').forEach(el => {
-    el.classList.remove('dragging', 'drag-target');
-  });
-
+  finishDrag(touchDrag.srcId);
   touchDrag = null;
-
-  if (srcIndex !== dropIndex) {
-    reorderLines(srcIndex, dropIndex);
-  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1588,13 +1894,19 @@ async function reviewWithAI() {
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:0 auto"></div>';
 
-  const numbered  = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
+  const numbered  = lines.map((l, i) => `${i + 1}. ${l.text}`).join('\n');
   const notesVal  = document.getElementById('additional-notes').value.trim();
   const notesSection = notesVal
     ? `\n\nADDITIONAL NOTES (fix grammar/phrasing only, keep as bullet lines):\n${notesVal}`
     : '';
 
   try {
+    const rulesRes = await fetch('RULES.md');
+    if (!rulesRes.ok) throw new Error('Could not load RULES.md (HTTP ' + rulesRes.status + ')');
+    const rulesText = await rulesRes.text();
+    if (rulesText.trim().startsWith('<')) throw new Error('RULES.md returned unexpected content — check deployment');
+    const prompt = buildReviewPrompt({ rulesText, numbered, notesSection });
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -1604,109 +1916,50 @@ async function reviewWithAI() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model:      'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: `You are proofreading construction scope lines for Elite Construction + Remodeling (Spokane, WA). Lines are voice-dictated by a Russian-accented contractor named Sergey.
-
-RULES:
-1. Title case every scope line (capitalize each significant word).
-2. Fix missing small words that speech-to-text drops — "and", "the", "to", "of" — only when their absence is clearly a mishearing of natural speech.
-3. Apply these exact phrase corrections:
-   - Any variation of "furnish and install" → always "Furnish and Install"
-   - "install on provided" / "install owner provide" / "install homeowner provided" → "Install Owner Provided"
-   - A line starting with "Owner Provided" (no Install at the front) → add "Install" at the start
-   - "owner to pay electrician" / "owner pay electrician" → "Owner to Pay Electrician Directly"
-   - "owner to pay plumber" / "owner pay plumber" → "Owner to Pay Plumber Directly"
-   - "remove and replace" / "remove replace" → "Remove and Replace"
-   - "LMP", "LBP", "LBV", "LVB", or any similar 3-letter combo → "LVP" (only when the line is about flooring)
-   - "dura rock" / "dura-rock" / "durarock" → "Durock"
-   - "green board" → "Green Board"
-4. CONSTRUCTION TERM MISHEARING CORRECTIONS — read the FULL LINE in context before applying any of these. If the substitution would make the line nonsensical, leave the original word:
-   - "Joyce" or "Joyce's" → "Joists" or "Joist" — ONLY when the line is clearly about structural framing: floors, ceilings, subfloor, sistering, ledger, rim, headers, or similar structural context. Example: "Sister the Joyce in Bathroom Floor" → "Sister the Joists in Bathroom Floor"
-   - "Furnishing" at the start of a line → "Furnish and" — Example: "Furnishing Install New Toilet" → "Furnish and Install New Toilet"
-   - "Sheetrock" (any case) → "Sheetrock" (capitalize correctly)
-   - "OSB" → keep as "OSB" (do not spell out)
-   - "LVP", "LVT" → keep as-is (these are correct flooring acronyms)
-5. DO NOT reword, restructure, or add words beyond what the rules above specify.
-6. DO NOT change product names, brand names, measurements, or model numbers.
-7. If a word seems like a mishearing but none of the corrections above clearly apply, leave it exactly as-is. Never guess.
-
-CORRECT EXAMPLES (already right — do not change these patterns):
-- Furnish and Install Shower Door
-- Furnish and Install New Toilet
-- Furnish and Install Dual Action Shower Valve and Shower Head
-- Furnish and Install Acrylic Shower Wall Panels
-- Install Owner Provided Vanity with Top and Sink
-- Install Owner Provided LVP Flooring
-- Install Owner Provided Glass Shower Door
-- Install Blocking for Secure Fastening of Towel Bars, Grab Bars, TP Holder, Shower Door, Robe Hook, Mirror
-- Install Duct from Bathroom Exhaust Fan to Nearest Soffit
-- Install Bathroom Vent Fan/Light Centered Over Shower
-- Install 60x32 Right Hand White Shower Base in the Bathroom
-- Install New Moen Rough-In Shower Valve and Rough-In Shower Head
-- Install New Moen Shower Valve Trim and Shower Head (Chrome)
-- Install Green Board on Shower Surround
-- Install Water Lines for Shower, Sink, and Toilet
-- Frame Opening for Recessed Niche
-- Frame Around the Furnace to Create Utility Room
-- Finish Framing Around the Duct Work and Beams on Ceiling
-- Demolition of Existing Tile Shower
-- Sister the Joists in Bathroom Floor Area
-- Add Sister Joists to Existing Joists to Level the Floor
-- Remove and Replace Damaged Floor Joists
-- Install New Rim Joist at Foundation
-- Owner to Pay Electrician Directly for All Electrical Work
-- Owner to Pay Plumber Directly for All Plumbing Work
-- Paint Walls and Ceiling Two Coats
-- Remove and Replace Drywall
-NOTE: Lines with multi-line descriptions (e.g. "Frame the following:\n- item 1\n- item 2") should be kept exactly as-is including line breaks.
-
-NOTES lines — sentence case only, no title case.
-CORRECT NOTES EXAMPLES:
-- Owner to pay electrician directly for all electrical work
-- Building permit not included in the price
-
-Return ONLY a numbered list with the exact same count as input. If additional notes were provided, return them after a line that says exactly "ADDITIONAL NOTES:". No preamble, no commentary, no explanation.
-
-SCOPE LINES:
-${numbered}${notesSection}`
-        }]
+        model:       'claude-haiku-4-5-20251001',
+        max_tokens:  2000,
+        tools:       [REVIEW_TOOL],
+        tool_choice: { type: 'tool', name: 'record_reviewed_lines' },
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     const data = await res.json();
     if (data.error) throw new Error(data.error.message);
 
-    const raw   = data?.content?.[0]?.text?.trim() || '';
-    const parts = raw.split(/ADDITIONAL NOTES:/i);
+    const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use');
+    if (!toolUseBlock) throw new Error('AI did not return a structured response');
 
-    const cleaned = parts[0].trim().split('\n')
-      .map(l => l.replace(/^\d+\.\s*/, '').trim())
-      .filter(l => l.length > 0);
+    const { lines: reviewedLines, notes: reviewedNotes } = parseReviewToolInput(toolUseBlock.input, lines.length);
 
-    if (cleaned.length === lines.length) {
-      changedIndices = new Set();
-      cleaned.forEach((line, i) => {
-        if (line.trim().toLowerCase() !== lines[i].trim().toLowerCase()) {
-          changedIndices.add(i);
-        }
-      });
-      lines = cleaned;
-      renderLines();
-      const n = changedIndices.size;
-      toast(n === 0 ? 'No changes needed ✓' : `${n} line${n > 1 ? 's' : ''} corrected — check highlighted`, 'ok');
-    } else {
-      toast('Scope line count mismatch — check manually', 'err');
-    }
+    changedIndices = new Set();
+    flaggedLines    = new Map();
+    reviewedLines.forEach((item, i) => {
+      if (item.text.toLowerCase() !== lines[i].text.trim().toLowerCase()) {
+        changedIndices.add(i);
+      }
+      if (item.flagged) {
+        flaggedLines.set(i, { reason: item.reason, aiText: item.text });
+      }
+    });
+    // Same count/order as the original lines (enforced by
+    // parseReviewToolInput), so each reviewed entry keeps its
+    // original line's id — only the text changes.
+    lines = reviewedLines.map((item, i) => ({ id: lines[i].id, text: item.text }));
+    renderLines();
+    saveSession();
 
-    if (parts[1] && notesVal) {
-      const cleanedNotes = parts[1].trim().split('\n')
-        .map(l => l.trim().replace(/^-\s*/, ''))
-        .filter(Boolean)
-        .join('\n');
-      document.getElementById('additional-notes').value = cleanedNotes;
+    const n = changedIndices.size;
+    const f = flaggedLines.size;
+    toast(
+      n === 0 && f === 0 ? 'No changes needed ✓' :
+      f === 0 ? `${n} line${n > 1 ? 's' : ''} corrected — check highlighted` :
+      `${n} corrected, ${f} flagged for review`,
+      'ok'
+    );
+
+    if (reviewedNotes.length && notesVal) {
+      document.getElementById('additional-notes').value = reviewedNotes.join('\n');
     }
 
   } catch(e) {
@@ -1721,89 +1974,49 @@ ${numbered}${notesSection}`
 //  SPEECH RECOGNITION
 // ════════════════════════════════════════════════════════════════
 function initSpeech() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const micBtn  = document.getElementById('mic-btn');
-  const micErr  = document.getElementById('mic-error');
-
-  if (!SR) {
+  const micBtn = document.getElementById('mic-btn');
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
     micBtn.disabled = true;
+    const micErr = document.getElementById('mic-error');
     micErr.classList.remove('hidden');
-    micErr.textContent = 'Voice not available — use Chrome on desktop or Android. You can still type lines directly.';
+    micErr.textContent = 'Voice capture not available in this browser. You can still type lines directly.';
     document.getElementById('mic-hint').textContent = 'Type lines directly in the list above';
+  }
+}
+
+async function transcribeAudio(blob, apiKey) {
+  const form = new FormData();
+  form.append('audio', blob, 'clip.webm');
+  form.append('apiKey', apiKey);
+  const res = await fetch('/transcribe', { method: 'POST', body: form });
+  const data = await res.json();
+  if (data.error) throw new Error(typeof data.error === 'string' ? data.error : data.error.message);
+  return (data.text || '').trim();
+}
+
+async function startListening() {
+  if (isListening) return;
+  if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
+
+  capturedActiveLine = activeLine;
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  } catch (e) {
+    toast('Microphone permission denied', 'err');
     return;
   }
 
-  recognition = new SR();
-  recognition.lang            = 'en-US';
-  recognition.continuous      = true;
-  recognition.interimResults  = true;
-  recognition.maxAlternatives = 1;
+  mediaChunks = [];
+  mediaRecorder = new MediaRecorder(mediaStream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) mediaChunks.push(e.data); };
+  mediaRecorder.onstop = () => transcribeRecording();
+  mediaRecorder.start();
 
-  recognition.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) {
-        pendingTranscript += (pendingTranscript ? ' ' : '') + r[0].transcript.trim();
-        document.getElementById('mic-transcript').textContent = pendingTranscript;
-        if (wantToStop) {
-          clearTimeout(stopFallbackTimer);
-          try { recognition.stop(); } catch(e) {}
-        }
-      }
-    }
-  };
-
-  recognition.onerror = (e) => {
-    if (e.error === 'no-speech') return;
-    if (e.error === 'not-allowed') { wantToStop = true; toast('Microphone permission denied', 'err'); }
-  };
-
-  recognition.onend = () => {
-    clearTimeout(stopFallbackTimer);
-
-    if (pendingTranscript) {
-      if (capturedActiveLine) {
-        // Insert at cursor in the focused line textarea
-        insertAtCursor(capturedActiveLine.el, pendingTranscript);
-        lines[capturedActiveLine.index] = capturedActiveLine.el.value;
-        autoResize(capturedActiveLine.el);
-      } else {
-        // No line focused — add as a new line at the bottom
-        addLine(pendingTranscript);
-      }
-      pendingTranscript = '';
-    }
-
-    document.getElementById('mic-transcript').textContent = '';
-    const btn = document.getElementById('mic-btn');
-    btn.classList.remove('listening');
-    btn.textContent = '🎤';
-    // Restore hint based on whether a line is still active
-    document.getElementById('mic-hint').textContent = activeLine
-      ? 'Hold mic to insert at cursor'
-      : 'Hold to speak, release to add';
-    isListening        = false;
-    buttonHeld         = false;
-    wantToStop         = false;
-    capturedActiveLine = null;
-  };
-}
-
-let wantToStop = false;
-let stopFallbackTimer = null;
-
-function startListening() {
-  if (!recognition || isListening) return;
-
-  // Capture active line NOW — before blur fires when focus shifts to mic button
-  capturedActiveLine = activeLine;
-
-  pendingTranscript = '';
-  buttonHeld  = true;
-  wantToStop  = false;
   isListening = true;
-  clearTimeout(stopFallbackTimer);
-  try { recognition.start(); } catch(e) {}
+  buttonHeld  = true;
   const btn = document.getElementById('mic-btn');
   btn.classList.add('listening');
   btn.textContent = '🔴';
@@ -1812,71 +2025,74 @@ function startListening() {
 }
 
 function stopListening() {
-  if (!isListening) return;
+  if (!isListening || !mediaRecorder) return;
   buttonHeld = false;
-  wantToStop = true;
-  if (pendingTranscript) {
-    try { recognition.stop(); } catch(e) {}
-  } else {
-    stopFallbackTimer = setTimeout(() => {
-      try { recognition.stop(); } catch(e) {}
-    }, 300);
-  }
+  mediaRecorder.stop();
+  mediaStream.getTracks().forEach(t => t.stop());
+  isListening = false;
+
+  const btn = document.getElementById('mic-btn');
+  btn.classList.remove('listening');
+  btn.textContent = '⏳';
+  document.getElementById('mic-hint').textContent = 'Transcribing…';
 }
 
-// Notes mic — separate one-shot recognition for the notes field
-let notesListening      = false;
-let notesRecognition    = null;
-let notesPending        = '';
-let notesWantToStop     = false;
-let notesFallbackTimer  = null;
+async function transcribeRecording() {
+  const btn = document.getElementById('mic-btn');
+  try {
+    const blob = new Blob(mediaChunks, { type: 'audio/webm' });
+    const transcript = await transcribeAudio(blob, openaiKey);
 
-function startNotesMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR || notesListening) return;
-
-  notesRecognition                = new SR();
-  notesRecognition.lang           = 'en-US';
-  notesRecognition.continuous     = true;
-  notesRecognition.interimResults = true;
-
-  notesRecognition.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) {
-        notesPending += (notesPending ? ' ' : '') + r[0].transcript.trim();
-        document.getElementById('notes-mic-transcript').textContent = notesPending;
-        if (notesWantToStop) {
-          clearTimeout(notesFallbackTimer);
-          try { notesRecognition.stop(); } catch(e) {}
-        }
+    if (transcript) {
+      if (capturedActiveLine) {
+        insertAtCursor(capturedActiveLine.el, transcript);
+        const idx = lines.findIndex(l => l.id === capturedActiveLine.id);
+        if (idx !== -1) lines[idx].text = capturedActiveLine.el.value;
+        autoResize(capturedActiveLine.el);
+        saveSession();
+      } else {
+        addLine(transcript);
       }
     }
-  };
+  } catch (e) {
+    toast('Transcription failed: ' + e.message, 'err');
+  }
 
-  notesRecognition.onerror = (e) => { if (e.error !== 'no-speech') notesWantToStop = true; };
+  document.getElementById('mic-transcript').textContent = '';
+  btn.classList.remove('listening');
+  btn.textContent = '🎤';
+  document.getElementById('mic-hint').textContent = activeLine
+    ? 'Hold mic to insert at cursor'
+    : 'Hold to speak, release to add';
+  capturedActiveLine = null;
+}
 
-  notesRecognition.onend = () => {
-    clearTimeout(notesFallbackTimer);
-    if (notesPending) {
-      const ta = document.getElementById('additional-notes');
-      ta.value = ta.value ? ta.value + '\n' + notesPending : notesPending;
-      notesPending = '';
-    }
-    document.getElementById('notes-mic-transcript').textContent = '';
-    document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
-    const btn = document.getElementById('notes-mic-btn');
-    btn.classList.remove('listening');
-    btn.textContent = '🎤';
-    notesListening  = false;
-    notesWantToStop = false;
-  };
+// Notes mic — same transcription pipeline as the main mic, separate recorder/stream
+let notesListening   = false;
+let notesMediaRecorder = null;
+let notesMediaChunks   = [];
+let notesMediaStream   = null;
 
-  notesPending    = '';
-  notesWantToStop = false;
-  notesListening  = true;
-  clearTimeout(notesFallbackTimer);
-  notesRecognition.start();
+async function startNotesMic() {
+  if (notesListening) return;
+  if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
+
+  try {
+    notesMediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  } catch (e) {
+    toast('Microphone permission denied', 'err');
+    return;
+  }
+
+  notesMediaChunks = [];
+  notesMediaRecorder = new MediaRecorder(notesMediaStream);
+  notesMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) notesMediaChunks.push(e.data); };
+  notesMediaRecorder.onstop = () => transcribeNotesRecording();
+  notesMediaRecorder.start();
+
+  notesListening = true;
   const btn = document.getElementById('notes-mic-btn');
   btn.classList.add('listening');
   btn.textContent = '🔴';
@@ -1885,15 +2101,109 @@ function startNotesMic() {
 }
 
 function stopNotesMic() {
-  if (!notesListening) return;
-  notesWantToStop = true;
-  if (notesPending) {
-    try { notesRecognition.stop(); } catch(e) {}
-  } else {
-    notesFallbackTimer = setTimeout(() => {
-      try { notesRecognition.stop(); } catch(e) {}
-    }, 300);
+  if (!notesListening || !notesMediaRecorder) return;
+  notesMediaRecorder.stop();
+  notesMediaStream.getTracks().forEach(t => t.stop());
+  notesListening = false;
+
+  const btn = document.getElementById('notes-mic-btn');
+  btn.classList.remove('listening');
+  btn.textContent = '⏳';
+  document.getElementById('notes-mic-hint').textContent = 'Transcribing…';
+}
+
+async function transcribeNotesRecording() {
+  const btn = document.getElementById('notes-mic-btn');
+  try {
+    const blob = new Blob(notesMediaChunks, { type: 'audio/webm' });
+    const transcript = await transcribeAudio(blob, openaiKey);
+    if (transcript) {
+      const ta = document.getElementById('additional-notes');
+      ta.value = ta.value ? ta.value + '\n' + transcript : transcript;
+      saveSession();
+    }
+  } catch (e) {
+    toast('Transcription failed: ' + e.message, 'err');
   }
+
+  document.getElementById('notes-mic-transcript').textContent = '';
+  btn.classList.remove('listening');
+  btn.textContent = '🎤';
+  document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
+}
+
+// Feedback modal — captures freeform voice/typed feedback, lets the user
+// review and edit it, then files it as a GitHub issue only on explicit Send.
+let feedbackListening     = false;
+let feedbackMediaRecorder = null;
+let feedbackMediaChunks   = [];
+let feedbackMediaStream   = null;
+
+function openFeedbackModal() {
+  document.getElementById('feedback-text').value = '';
+  show('feedback-modal');
+}
+
+function closeFeedbackModal() {
+  if (feedbackListening) stopFeedbackMic();
+  hide('feedback-modal');
+}
+
+async function sendFeedback() {
+  const text = document.getElementById('feedback-text').value.trim();
+  if (!text) { toast('Nothing to send', 'err'); return; }
+  const issue = buildFeedbackIssue({ transcript: text });
+  await fileGithubIssue(issue.type, issue);
+  toast('Feedback sent — thanks!', 'ok');
+  closeFeedbackModal();
+}
+
+async function startFeedbackMic() {
+  if (feedbackListening) return;
+  if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
+
+  try {
+    feedbackMediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  } catch (e) {
+    toast('Microphone permission denied', 'err');
+    return;
+  }
+
+  feedbackMediaChunks = [];
+  feedbackMediaRecorder = new MediaRecorder(feedbackMediaStream);
+  feedbackMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) feedbackMediaChunks.push(e.data); };
+  feedbackMediaRecorder.onstop = () => transcribeFeedbackRecording();
+  feedbackMediaRecorder.start();
+
+  feedbackListening = true;
+  document.getElementById('feedback-modal-mic-btn').classList.add('listening');
+  document.getElementById('feedback-modal-mic-hint').textContent = 'Speaking… release when done';
+}
+
+function stopFeedbackMic() {
+  if (!feedbackListening || !feedbackMediaRecorder) return;
+  feedbackMediaRecorder.stop();
+  feedbackMediaStream.getTracks().forEach(t => t.stop());
+  feedbackListening = false;
+  document.getElementById('feedback-modal-mic-hint').textContent = 'Transcribing…';
+}
+
+async function transcribeFeedbackRecording() {
+  try {
+    const blob = new Blob(feedbackMediaChunks, { type: 'audio/webm' });
+    const transcript = await transcribeAudio(blob, openaiKey);
+    if (transcript) {
+      const ta = document.getElementById('feedback-text');
+      ta.value = ta.value ? ta.value + ' ' + transcript : transcript;
+    }
+  } catch (e) {
+    toast('Transcription failed: ' + e.message, 'err');
+  }
+
+  document.getElementById('feedback-modal-mic-btn').classList.remove('listening');
+  document.getElementById('feedback-modal-mic-hint').textContent = 'Hold to speak, release to fill in text above';
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1938,7 +2248,7 @@ async function submitToJobTread() {
       const params  = {
         jobId:        selectedJob.id,
         costGroupId,
-        name:         lines[i],
+        name:         lines[i].text,
         showQuantity: false,
         costCodeId,
         costTypeId
@@ -2010,6 +2320,7 @@ async function submitToJobTread() {
       renderLines();
       document.getElementById('total-price').value = '';
       document.getElementById('additional-notes').value = '';
+      localStorage.removeItem(SESSION_STORAGE_KEY);
       btn.classList.remove('success-state');
       btn.disabled = false;
       btn.textContent = 'Post Exhibit to JobTread';
@@ -2070,7 +2381,7 @@ async function submitToJobTread() {
   } catch (err) {
     console.error('JobTread error:', err);
     const isCors = err.message.includes('Failed to fetch');
-    toast(isCors ? 'CORS error — add a proxy URL in Settings' : 'Error: ' + err.message, 'err');
+    toast(isCors ? 'CORS error — contact whoever maintains this app' : 'Error: ' + err.message, 'err');
     btn.disabled = false;
     btn.textContent = 'Post to JobTread';
   }
@@ -2101,53 +2412,6 @@ function toast(msg, type = '') {
 // ════════════════════════════════════════════════════════════════
 init();
 </script>
-
-<!--
-  ═══════════════════════════════════════════════════════════════════
-  NETLIFY PROXY FUNCTION (for CORS issues)
-  ═══════════════════════════════════════════════════════════════════
-
-  If you get CORS errors, do this once:
-
-  1. Create a GitHub repo
-  2. Put this HTML file in the repo root as index.html
-  3. Create netlify/functions/jt.js with this content:
-
-  ─────────────────────────────────────────────────────────────────
-  exports.handler = async (event) => {
-    if (event.httpMethod !== 'POST') {
-      return { statusCode: 405, body: 'Method Not Allowed' };
-    }
-    try {
-      const res = await fetch('https://api.jobtread.com/pave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: event.body
-      });
-      const data = await res.text();
-      return {
-        statusCode: res.status,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        },
-        body: data
-      };
-    } catch (e) {
-      return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
-    }
-  };
-  ─────────────────────────────────────────────────────────────────
-
-  4. Connect the repo to Netlify (netlify.com — free account)
-  5. After deploy, your proxy URL will be:
-       https://YOUR-SITE-NAME.netlify.app/.netlify/functions/jt
-  6. Enter that URL in Settings → Proxy URL
-
-  The grant key never leaves the browser — the proxy only forwards
-  the POST body which already contains the key inside the query.
-  ═══════════════════════════════════════════════════════════════════
--->
 
 </body>
 </html>
