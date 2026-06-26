@@ -1615,6 +1615,7 @@ function renderLines() {
     return `
     <li class="line-item${changedIndices.has(i) ? ' changed' : ''}${flag ? ' flagged' : ''}"
         data-id="${line.id}"
+        onclick="if(!event.target.closest('button,textarea'))this.querySelector('.line-text').focus()"
         ondragover="onDragOver(event,${line.id})"
         ondrop="onDrop(event,${line.id})">
       <div class="line-row">
