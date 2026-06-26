@@ -919,6 +919,10 @@ h1, h2, .label {
       <div class="mic-hint" id="mic-hint">Hold to speak, release to add</div>
       <div class="mic-transcript" id="mic-transcript"></div>
       <div class="mic-error hidden" id="mic-error"></div>
+      <button id="undo-line-btn" onclick="undoLastLine()" class="hidden" style="
+        margin-top:10px;padding:6px 16px;border:1.5px solid var(--silver);border-radius:20px;
+        background:var(--white);color:var(--slate);font-size:12px;cursor:pointer;
+      ">↩ Undo last line</button>
     </div>
   </div>
 
@@ -1474,11 +1478,31 @@ function addLine(raw) {
   text = text.replace(/\.+$/, '');
   lines.push({ id: nextLineId++, text });
   renderLines();
+  const items = document.querySelectorAll('.line-item');
+  if (items.length) items[items.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   if (lines.length === 1) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
   }
+  updateUndoBtn();
   saveSession();
+}
+
+function undoLastLine() {
+  if (!lines.length) return;
+  lines.pop();
+  renderLines();
+  updateUndoBtn();
+  if (!lines.length) {
+    document.getElementById('dot-2').classList.remove('done');
+    document.getElementById('dot-3').classList.remove('active');
+  }
+  saveSession();
+}
+
+function updateUndoBtn() {
+  const btn = document.getElementById('undo-line-btn');
+  if (btn) btn.classList.toggle('hidden', lines.length === 0);
 }
 
 // Insert a blank line above the given line (by id) and focus it. Resolves
@@ -1521,6 +1545,7 @@ function deleteLine(id) {
   if (i === -1) return;
   lines.splice(i, 1);
   renderLines();
+  updateUndoBtn();
   if (!lines.length) {
     document.getElementById('dot-2').classList.remove('done');
     document.getElementById('dot-3').classList.remove('active');
