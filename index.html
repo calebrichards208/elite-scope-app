@@ -2187,7 +2187,6 @@ let feedbackMediaRecorder = null;
 let feedbackMediaChunks   = [];
 
 function openFeedbackModal() {
-  document.getElementById('feedback-text').value = '';
   show('feedback-modal');
 }
 
@@ -2201,6 +2200,7 @@ async function sendFeedback() {
   if (!text) { toast('Nothing to send', 'err'); return; }
   const issue = buildFeedbackIssue({ transcript: text });
   await fileGithubIssue(issue.type, issue);
+  document.getElementById('feedback-text').value = '';
   toast('Feedback sent — thanks!', 'ok');
   closeFeedbackModal();
 }
