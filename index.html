@@ -1988,6 +1988,10 @@ function initSpeech() {
 // silently falls back to audio/mp4 there. Picking the format explicitly,
 // per-recorder, is what lets the Blob/upload filename match what was
 // actually recorded on every browser, instead of assuming webm everywhere.
+function isStreamAlive(stream) {
+  return stream && stream.active && stream.getTracks().some(t => t.readyState === 'live');
+}
+
 function pickRecorderMimeType() {
   if (!window.MediaRecorder) return '';
   for (const type of ['audio/webm', 'audio/mp4']) {
@@ -2016,13 +2020,15 @@ async function startListening() {
 
   capturedActiveLine = activeLine;
 
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-  } catch (e) {
-    toast('Microphone permission denied', 'err');
-    return;
+  if (!isStreamAlive(mediaStream)) {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    } catch (e) {
+      toast('Microphone permission denied', 'err');
+      return;
+    }
   }
 
   mediaChunks = [];
@@ -2045,7 +2051,6 @@ function stopListening() {
   if (!isListening || !mediaRecorder) return;
   buttonHeld = false;
   mediaRecorder.stop();
-  mediaStream.getTracks().forEach(t => t.stop());
   isListening = false;
 
   const btn = document.getElementById('mic-btn');
@@ -2094,13 +2099,15 @@ async function startNotesMic() {
   if (notesListening) return;
   if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
 
-  try {
-    notesMediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-  } catch (e) {
-    toast('Microphone permission denied', 'err');
-    return;
+  if (!isStreamAlive(notesMediaStream)) {
+    try {
+      notesMediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    } catch (e) {
+      toast('Microphone permission denied', 'err');
+      return;
+    }
   }
 
   notesMediaChunks = [];
@@ -2121,7 +2128,6 @@ async function startNotesMic() {
 function stopNotesMic() {
   if (!notesListening || !notesMediaRecorder) return;
   notesMediaRecorder.stop();
-  notesMediaStream.getTracks().forEach(t => t.stop());
   notesListening = false;
 
   const btn = document.getElementById('notes-mic-btn');
@@ -2180,13 +2186,15 @@ async function startFeedbackMic() {
   if (feedbackListening) return;
   if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
 
-  try {
-    feedbackMediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
-    });
-  } catch (e) {
-    toast('Microphone permission denied', 'err');
-    return;
+  if (!isStreamAlive(feedbackMediaStream)) {
+    try {
+      feedbackMediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+    } catch (e) {
+      toast('Microphone permission denied', 'err');
+      return;
+    }
   }
 
   feedbackMediaChunks = [];
@@ -2204,7 +2212,6 @@ async function startFeedbackMic() {
 function stopFeedbackMic() {
   if (!feedbackListening || !feedbackMediaRecorder) return;
   feedbackMediaRecorder.stop();
-  feedbackMediaStream.getTracks().forEach(t => t.stop());
   feedbackListening = false;
   document.getElementById('feedback-modal-mic-hint').textContent = 'Transcribing…';
 }
