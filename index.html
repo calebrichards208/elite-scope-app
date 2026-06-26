@@ -1653,7 +1653,7 @@ function autoResize(el) {
 function setActiveLine(id, el) {
   activeLine = { id, el };
   document.getElementById('mic-hint').textContent = 'Hold mic to insert at cursor';
-  document.querySelector('.mic-zone').classList.add('pinned');
+  if (!('ontouchstart' in window)) document.querySelector('.mic-zone').classList.add('pinned');
 }
 
 // Called on blur — delayed so mic mousedown can capture first
