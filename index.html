@@ -2049,7 +2049,7 @@ async function startListening() {
   if (!isStreamAlive(sharedMicStream)) {
     try {
       sharedMicStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
     } catch (e) {
       toast('Microphone permission denied', 'err');
@@ -2127,7 +2127,7 @@ async function startNotesMic() {
   if (!isStreamAlive(sharedMicStream)) {
     try {
       sharedMicStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
     } catch (e) {
       toast('Microphone permission denied', 'err');
@@ -2213,7 +2213,7 @@ async function startFeedbackMic() {
   if (!isStreamAlive(sharedMicStream)) {
     try {
       sharedMicStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
     } catch (e) {
       toast('Microphone permission denied', 'err');
