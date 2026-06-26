@@ -1080,7 +1080,7 @@ let existingExhibits = [];
 let existingNotesId  = null;
 let mediaRecorder = null;
 let mediaChunks    = [];
-let mediaStream    = null;
+let sharedMicStream = null;
 let changedIndices = new Set();
 let flaggedLines    = new Map(); // index -> { reason, aiText }
 let buttonHeld = false;
@@ -2020,9 +2020,9 @@ async function startListening() {
 
   capturedActiveLine = activeLine;
 
-  if (!isStreamAlive(mediaStream)) {
+  if (!isStreamAlive(sharedMicStream)) {
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
+      sharedMicStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
       });
     } catch (e) {
@@ -2033,7 +2033,7 @@ async function startListening() {
 
   mediaChunks = [];
   const mimeType = pickRecorderMimeType();
-  mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream);
+  mediaRecorder = mimeType ? new MediaRecorder(sharedMicStream, { mimeType }) : new MediaRecorder(sharedMicStream);
   mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) mediaChunks.push(e.data); };
   mediaRecorder.onstop = () => transcribeRecording();
   mediaRecorder.start();
@@ -2093,15 +2093,14 @@ async function transcribeRecording() {
 let notesListening   = false;
 let notesMediaRecorder = null;
 let notesMediaChunks   = [];
-let notesMediaStream   = null;
 
 async function startNotesMic() {
   if (notesListening) return;
   if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
 
-  if (!isStreamAlive(notesMediaStream)) {
+  if (!isStreamAlive(sharedMicStream)) {
     try {
-      notesMediaStream = await navigator.mediaDevices.getUserMedia({
+      sharedMicStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
       });
     } catch (e) {
@@ -2112,7 +2111,7 @@ async function startNotesMic() {
 
   notesMediaChunks = [];
   const notesMimeType = pickRecorderMimeType();
-  notesMediaRecorder = notesMimeType ? new MediaRecorder(notesMediaStream, { mimeType: notesMimeType }) : new MediaRecorder(notesMediaStream);
+  notesMediaRecorder = notesMimeType ? new MediaRecorder(sharedMicStream, { mimeType: notesMimeType }) : new MediaRecorder(sharedMicStream);
   notesMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) notesMediaChunks.push(e.data); };
   notesMediaRecorder.onstop = () => transcribeNotesRecording();
   notesMediaRecorder.start();
@@ -2161,7 +2160,6 @@ async function transcribeNotesRecording() {
 let feedbackListening     = false;
 let feedbackMediaRecorder = null;
 let feedbackMediaChunks   = [];
-let feedbackMediaStream   = null;
 
 function openFeedbackModal() {
   document.getElementById('feedback-text').value = '';
@@ -2186,9 +2184,9 @@ async function startFeedbackMic() {
   if (feedbackListening) return;
   if (!openaiKey) { toast('Add your OpenAI API key in Settings', 'err'); return; }
 
-  if (!isStreamAlive(feedbackMediaStream)) {
+  if (!isStreamAlive(sharedMicStream)) {
     try {
-      feedbackMediaStream = await navigator.mediaDevices.getUserMedia({
+      sharedMicStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
       });
     } catch (e) {
@@ -2199,7 +2197,7 @@ async function startFeedbackMic() {
 
   feedbackMediaChunks = [];
   const feedbackMimeType = pickRecorderMimeType();
-  feedbackMediaRecorder = feedbackMimeType ? new MediaRecorder(feedbackMediaStream, { mimeType: feedbackMimeType }) : new MediaRecorder(feedbackMediaStream);
+  feedbackMediaRecorder = feedbackMimeType ? new MediaRecorder(sharedMicStream, { mimeType: feedbackMimeType }) : new MediaRecorder(sharedMicStream);
   feedbackMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) feedbackMediaChunks.push(e.data); };
   feedbackMediaRecorder.onstop = () => transcribeFeedbackRecording();
   feedbackMediaRecorder.start();
