@@ -34,6 +34,28 @@ test('forwards audio and apiKey to OpenAI and relays the response', async () => 
   }
 });
 
+test('forwards a construction-vocabulary prompt to bias transcription accuracy', async () => {
+  const { onRequestPost } = await import('../functions/transcribe.js');
+  const originalFetch = global.fetch;
+  let capturedForm;
+  global.fetch = async (url, opts) => {
+    capturedForm = opts.body;
+    return new Response(JSON.stringify({ text: 'furnish and install new toilet' }), { status: 200 });
+  };
+  try {
+    const form = new FormData();
+    form.append('audio', new Blob(['fake-audio-bytes'], { type: 'audio/webm' }), 'clip.webm');
+    form.append('apiKey', 'sk-test');
+    const request = new Request('https://example.com/transcribe', { method: 'POST', body: form });
+    await onRequestPost({ request });
+    const prompt = capturedForm.get('prompt');
+    assert.ok(prompt && prompt.length > 0);
+    assert.match(prompt, /Furnish and Install/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('relays a non-200 upstream status', async () => {
   const { onRequestPost } = await import('../functions/transcribe.js');
   const originalFetch = global.fetch;

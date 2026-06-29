@@ -1119,6 +1119,10 @@ let buttonHeld = false;
 let orgId        = null;
 let costCodeId   = '22PEaNuVctaf';
 let costTypeId   = '22PU7gmNf9aq';
+// JobTread custom field: "Pipeline Stage" — update this ID if the field is
+// ever deleted and recreated in JobTread (a rename alone won't break it).
+const PIPELINE_STAGE_FIELD_ID = '22PEaNuVnE52';
+const PROPOSAL_STAGE_VALUE    = 'Building Proposal';
 let anthropicKey = '';
 let openaiKey     = '';
 let restoredSession = null; // set once in init(), consumed once jobs/lines are ready
@@ -1258,19 +1262,33 @@ async function loadJobs() {
     orgId = grantData?.currentGrant?.user?.memberships?.nodes?.[0]?.organization?.id;
     if (!orgId) throw new Error('Could not find organization from grant key');
 
-    const data = await jtPost({
-      $: { grantKey },
-      organization: {
-        $: { id: orgId },
-        jobs: {
-          $: { sortBy: [{ field: 'createdAt', order: 'desc' }] },
-          nodes: { id: {}, name: {}, number: {}, closedOn: {} }
+    let fetchedJobs = [];
+    let page = null;
+    do {
+      const params = { sortBy: [{ field: 'createdAt', order: 'desc' }], size: 100 };
+      if (page) params.page = page;
+      const data = await jtPost({
+        $: { grantKey },
+        organization: {
+          $: { id: orgId },
+          jobs: {
+            $: params,
+            nextPage: {},
+            nodes: {
+              id: {}, name: {}, number: {}, closedOn: {},
+              customFieldValues: {
+                nodes: { value: {}, customField: { id: {} } }
+              }
+            }
+          }
         }
-      }
-    });
+      });
+      fetchedJobs = fetchedJobs.concat(data?.organization?.jobs?.nodes || []);
+      page = data?.organization?.jobs?.nextPage || null;
+    } while (page);
 
-    allJobs = (data?.organization?.jobs?.nodes || []);
-    renderJobList(allJobs);
+    allJobs = fetchedJobs;
+    renderJobList(proposalJobs());
 
     if (restoredSession) {
       const savedLines = restoredSession.lines.map(text => ({ id: nextLineId++, text }));
@@ -1317,27 +1335,50 @@ async function createCostItem(jobId, name, unitPrice, isTaxable = false, unitCos
 // ════════════════════════════════════════════════════════════════
 //  JOB SELECTION
 // ════════════════════════════════════════════════════════════════
-function renderJobList(jobs) {
+function getJobStage(job) {
+  const cfv = (job.customFieldValues?.nodes || []).find(
+    n => n.customField?.id === PIPELINE_STAGE_FIELD_ID
+  );
+  return cfv?.value || null;
+}
+
+function proposalJobs() {
+  return allJobs.filter(j => getJobStage(j) === PROPOSAL_STAGE_VALUE);
+}
+
+function renderJobList(jobs, searchMode = false) {
   shownJobs = jobs;
   const el = document.getElementById('job-list');
   if (!jobs.length) {
-    el.innerHTML = '<div class="job-list-status">No jobs found</div>';
+    el.innerHTML = `<div class="job-list-status">${searchMode ? 'No jobs match that search' : 'No jobs in "Building Proposal"'}</div>`;
     return;
   }
-  el.innerHTML = jobs.map((j, i) => `
+  const hint = !searchMode
+    ? `<div style="font-size:11px;color:var(--slate-lt);padding:6px 12px 2px;text-align:center">Showing "Building Proposal" · search to find any job</div>`
+    : '';
+  el.innerHTML = hint + jobs.map((j, i) => {
+    const stage = searchMode ? getJobStage(j) : null;
+    const stagePill = stage && stage !== PROPOSAL_STAGE_VALUE
+      ? ` <span style="font-size:10px;color:var(--slate-lt);font-weight:400;white-space:nowrap">${escHtml(stage)}</span>`
+      : '';
+    return `
     <div class="job-item" onclick="pickJob(${i})">
-      <div class="job-name">${escHtml(j.name || 'Untitled Job')}${j.closedOn ? ' <span style="font-size:11px;color:var(--slate-lt);font-weight:400">(closed)</span>' : ''}</div>
+      <div class="job-name">${escHtml(j.name || 'Untitled Job')}${j.closedOn ? ' <span style="font-size:11px;color:var(--slate-lt);font-weight:400">(closed)</span>' : ''}${stagePill}</div>
       <div class="job-meta">${j.number ? '#' + j.number : ''}</div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 function filterJobs(q) {
-  const lq = q.toLowerCase();
+  const lq = q.toLowerCase().trim();
+  if (!lq) {
+    renderJobList(proposalJobs(), false);
+    return;
+  }
   renderJobList(allJobs.filter(j =>
     (j.name || '').toLowerCase().includes(lq) ||
     String(j.number || '').includes(lq)
-  ));
+  ), true);
 }
 
 async function pickJob(idx) {
@@ -1494,7 +1535,7 @@ function changeJob() {
   hide('exhibit-banner');
   hide('exhibit-loading');
   document.getElementById('job-search').value = '';
-  renderJobList(allJobs);
+  renderJobList(proposalJobs());
   document.getElementById('badge-1').classList.remove('done');
   document.getElementById('badge-1').textContent = '1';
   document.getElementById('dot-1').classList.add('active');

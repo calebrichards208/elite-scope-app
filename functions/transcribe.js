@@ -1,3 +1,15 @@
+// Primes gpt-4o-transcribe's recognition of trade jargon that's otherwise
+// easy to mishear (e.g. "Furnish and Install" -> "Furnishing"). Per OpenAI's
+// guidance for this model, keep it a short vocabulary/context hint rather
+// than an instruction list — that's RULES.md's job, applied in the separate
+// AI review pass. Extend this line as new mishearings turn up.
+const TRANSCRIPTION_VOCAB_HINT =
+  'A contractor is dictating a construction scope-of-work line item. Common phrases: ' +
+  'Furnish and Install, Install Owner Provided, Remove and Replace, Owner to Pay Electrician Directly, ' +
+  'Owner to Pay Plumber Directly. Common terms: Durock, Green Board, Sheetrock, OSB, LVP, LVT, joists, ' +
+  'sistering, rim joist, headers, blocking, niche, vanity, shower valve, shower pan. ' +
+  'Measurements are written in shorthand, not spelled out: 2x4, 2x6x8, 12", 6\', 5\'6".';
+
 export async function onRequestPost(context) {
   const { request } = context;
   try {
@@ -21,6 +33,7 @@ export async function onRequestPost(context) {
     const upstreamForm = new FormData();
     upstreamForm.append('file', audio, audio.name || 'clip.webm');
     upstreamForm.append('model', 'gpt-4o-transcribe');
+    upstreamForm.append('prompt', TRANSCRIPTION_VOCAB_HINT);
 
     const upstream = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',

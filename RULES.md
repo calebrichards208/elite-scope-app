@@ -17,9 +17,15 @@ RULES:
    - "Sheetrock" (any case) → "Sheetrock" (capitalize correctly)
    - "OSB" → keep as "OSB" (do not spell out)
    - "LVP", "LVT" → keep as-is (these are correct flooring acronyms)
-5. DO NOT reword, restructure, or add words beyond what the rules above specify.
-6. DO NOT change product names, brand names, measurements, or model numbers.
-7. If a word seems like a mishearing but none of the corrections above clearly apply, leave it exactly as-is. Never guess.
+5. MEASUREMENT NOTATION — only when a number is clearly a physical dimension (lumber size, length, width, height, depth, on-center spacing), convert spoken-out dimensions to standard shorthand:
+   - "two by four" / "Two By Four" → "2x4" — numbers joined by a lowercase "x", no spaces. Applies to any count: "two by six by eight" → "2x6x8"
+   - A number followed by "inches" / "inch" → that number followed directly by a straight double-quote, no space: "12 inches" → 12"
+   - A number followed by "feet" / "foot" → that number followed directly by a straight single-quote, no space: "6 feet" → 6'
+   - Feet-and-inches together: "5 feet 6 inches" → 5'6"
+   - Do NOT apply this to phone numbers, addresses, dates, or counts of items ("2 boxes", "3 outlets") — only physical dimensions.
+6. DO NOT reword, restructure, or add words beyond what the rules above specify.
+7. DO NOT change product names, brand names, model numbers, or the underlying value of any measurement — only its notation, per rule 5.
+8. If a word seems like a mishearing but none of the corrections above clearly apply, leave it exactly as-is. Never guess.
 
 CORRECT EXAMPLES (already right — do not change these patterns):
 - Furnish and Install Shower Door
@@ -49,6 +55,10 @@ CORRECT EXAMPLES (already right — do not change these patterns):
 - Owner to Pay Plumber Directly for All Plumbing Work
 - Paint Walls and Ceiling Two Coats
 - Remove and Replace Drywall
+- Frame New Wall Using 2x4 Studs
+- Install 2x6x8 Pressure Treated Posts
+- Frame Opening 36" Wide by 80" Tall
+- Frame New Wall at 9' Ceiling Height
 NOTE: Lines with multi-line descriptions (e.g. "Frame the following:\n- item 1\n- item 2") should be kept exactly as-is including line breaks.
 
 NOTES lines — sentence case only, no title case.
