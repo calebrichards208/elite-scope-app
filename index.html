@@ -435,10 +435,11 @@ h1, h2, .label {
 /* While a scope line is focused for editing on phone/tablet, pin the
    mic bar to the bottom of the screen so the on-screen keyboard can
    never push it out of view — the problem reported was having to
-   scroll down past the keyboard to find it mid-correction. Desktop
-   has no on-screen keyboard to occlude it, so this only applies below
-   the breakpoint where that's actually a problem. */
-@media (max-width: 900px) {
+   scroll down past the keyboard to find it mid-correction. Gated on
+   (hover:none)+(pointer:coarse) rather than viewport width — an iPad
+   in landscape is wider than any reasonable phone/tablet breakpoint
+   but still has an on-screen keyboard, so a width check misses it. */
+@media (hover: none) and (pointer: coarse), (max-width: 900px) {
   .mic-zone.pinned {
     position: fixed;
     left: 50%;
