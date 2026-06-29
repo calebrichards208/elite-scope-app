@@ -425,6 +425,7 @@ h1, h2, .label {
 
 /* ── Mic button ───────────────────────────────────────────────── */
 .mic-zone {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -449,20 +450,32 @@ h1, h2, .label {
     max-width: 760px;
     background: var(--white);
     box-shadow: 0 -2px 12px rgba(15,23,42,0.12);
-    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
     margin-top: 0;
     z-index: 30;
   }
-  /* Pinned bar sits right above the keyboard, blocking the line being
-     edited — shrink the button and drop the hint (self-explanatory by
-     now) so it covers less of the text above it. */
+  /* Pinned bar sits right above the keyboard — shrink button, drop hint,
+     show Done button so the user can reliably dismiss on iOS (tapping
+     non-interactive areas doesn't blur textareas in mobile Safari). */
   .mic-zone.pinned .mic-btn {
     width: 48px; height: 48px;
     font-size: 20px;
   }
-  .mic-zone.pinned .mic-hint {
-    display: none;
-  }
+  .mic-zone.pinned .mic-hint { display: none; }
+  .mic-zone.pinned .mic-done-btn { display: block; }
+}
+.mic-done-btn {
+  display: none;
+  position: absolute;
+  top: 6px; right: 12px;
+  background: none;
+  border: none;
+  color: var(--amber-dk);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
 }
 .mic-btn {
   width: 76px; height: 76px;
@@ -933,6 +946,7 @@ h1, h2, .label {
 
     <!-- Mic zone -->
     <div class="mic-zone">
+      <button class="mic-done-btn" onclick="document.activeElement.blur()" title="Dismiss keyboard">Done</button>
       <button class="mic-btn" id="mic-btn"
         onmousedown="startListening()" onmouseup="stopListening()" onmouseleave="stopListening()"
         ontouchstart="e=arguments[0];e.preventDefault();startListening()" ontouchend="stopListening()"
