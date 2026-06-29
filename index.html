@@ -450,18 +450,22 @@ h1, h2, .label {
     max-width: 760px;
     background: var(--white);
     box-shadow: 0 -2px 12px rgba(15,23,42,0.12);
-    padding: 4px 0 calc(4px + env(safe-area-inset-bottom));
+    padding: 4px 0;
     margin-top: 0;
     z-index: 30;
   }
-  /* Pinned bar sits right above the keyboard — shrink button, drop hint,
-     show Done button so the user can reliably dismiss on iOS (tapping
-     non-interactive areas doesn't blur textareas in mobile Safari). */
+  /* Pinned bar sits right above the keyboard — shrink button, drop hint
+     and transcript, show Done button so the user can reliably dismiss on
+     iOS (tapping non-interactive areas doesn't blur textareas in Safari).
+     No safe-area-inset padding: the JS bottom offset already places the
+     bar above the keyboard, so adding home-indicator clearance here just
+     creates dead whitespace inside the bar. */
   .mic-zone.pinned .mic-btn {
     width: 48px; height: 48px;
     font-size: 20px;
   }
-  .mic-zone.pinned .mic-hint { display: none; }
+  .mic-zone.pinned .mic-hint,
+  .mic-zone.pinned .mic-transcript { display: none; }
   .mic-zone.pinned .mic-done-btn { display: block; }
 }
 .mic-done-btn {
