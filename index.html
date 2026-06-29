@@ -376,6 +376,18 @@ h1, h2, .label {
   flex-shrink: 0;
 }
 .line-del:hover { color: var(--red); }
+.line-revert {
+  background: none;
+  border: none;
+  color: var(--amber-dk);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 8px 4px 8px 8px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.line-revert:hover { color: var(--navy); }
 
 .line-item.changed {
   background: var(--amber-lt);
@@ -929,10 +941,6 @@ h1, h2, .label {
       <div class="mic-hint" id="mic-hint">Hold to speak, release to add</div>
       <div class="mic-transcript" id="mic-transcript"></div>
       <div class="mic-error hidden" id="mic-error"></div>
-      <button id="undo-line-btn" onclick="undoLastLine()" class="hidden" style="
-        margin-top:10px;padding:6px 16px;border:1.5px solid var(--silver);border-radius:20px;
-        background:var(--white);color:var(--slate);font-size:12px;cursor:pointer;
-      ">↩ Undo last line</button>
     </div>
   </div>
 
@@ -988,6 +996,13 @@ h1, h2, .label {
        onmouseout="this.style.background='var(--white)'">
       ✦ Review with AI
     </button>
+    <button id="undo-review-btn" onclick="undoReview()" class="hidden" style="
+      padding:13px 16px; background:var(--white);
+      border:1.5px solid var(--silver); border-radius:var(--radius);
+      color:var(--slate); font-family:'Barlow Condensed',sans-serif;
+      font-size:15px; font-weight:700; letter-spacing:0.04em;
+      text-transform:uppercase; cursor:pointer; white-space:nowrap;
+    ">↩ Undo</button>
   </div>
 
   <!-- ── STEP 3: Total & Submit ── -->
@@ -1097,6 +1112,8 @@ let mediaChunks    = [];
 let sharedMicStream = null;
 let changedIndices = new Set();
 let flaggedLines    = new Map(); // index -> { reason, aiText }
+let lastReviewSnapshot = null; // [{id, text}] just before the most recent AI review applied — powers "Undo Review"
+let originalTextById   = new Map(); // line id -> pre-review text, for reverting one line at a time
 let buttonHeld = false;
 let orgId        = null;
 let costCodeId   = '22PEaNuVctaf';
@@ -1450,6 +1467,10 @@ function showExhibitBanner() {
 function clearAllLines() {
   if (!confirm('Clear all lines and start fresh?')) return;
   lines = [];
+  changedIndices = new Set();
+  flaggedLines = new Map();
+  originalTextById = new Map();
+  invalidateReviewSnapshot();
   document.getElementById('total-price').value = '';
   renderLines();
   document.getElementById('exhibit-banner-text').textContent =
@@ -1463,6 +1484,10 @@ function changeJob() {
   existingExhibits = [];
   existingNotesId  = null;
   lines            = [];
+  changedIndices   = new Set();
+  flaggedLines     = new Map();
+  originalTextById = new Map();
+  invalidateReviewSnapshot();
   show('job-picker');
   hide('job-selected');
   hide('exhibit-banner');
@@ -1487,6 +1512,7 @@ function addLine(raw) {
   text = text.charAt(0).toUpperCase() + text.slice(1);
   text = text.replace(/\.+$/, '');
   lines.push({ id: nextLineId++, text });
+  invalidateReviewSnapshot();
   renderLines();
   const items = document.querySelectorAll('.line-item');
   if (items.length) items[items.length - 1].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1494,25 +1520,7 @@ function addLine(raw) {
     document.getElementById('dot-2').classList.add('done');
     document.getElementById('dot-3').classList.add('active');
   }
-  updateUndoBtn();
   saveSession();
-}
-
-function undoLastLine() {
-  if (!lines.length) return;
-  lines.pop();
-  renderLines();
-  updateUndoBtn();
-  if (!lines.length) {
-    document.getElementById('dot-2').classList.remove('done');
-    document.getElementById('dot-3').classList.remove('active');
-  }
-  saveSession();
-}
-
-function updateUndoBtn() {
-  const btn = document.getElementById('undo-line-btn');
-  if (btn) btn.classList.toggle('hidden', lines.length === 0);
 }
 
 // Insert a blank line above the given line (by id) and focus it. Resolves
@@ -1526,6 +1534,7 @@ function insertLineAbove(id) {
   lines.splice(i, 0, newLine);
   changedIndices = new Set([...changedIndices].map(idx => idx >= i ? idx + 1 : idx));
   flaggedLines    = new Map([...flaggedLines].map(([idx, v]) => [idx >= i ? idx + 1 : idx, v]));
+  invalidateReviewSnapshot();
   renderLines();
   // Focus the new empty textarea so user can type or dictate immediately
   const newEl = document.querySelector(`.line-item[data-id="${newLine.id}"] .line-text`);
@@ -1546,6 +1555,7 @@ function reorderLines(fromIndex, toIndex) {
   lines = newLines;
   changedIndices.clear(); // clear highlights after reorder
   flaggedLines.clear();
+  invalidateReviewSnapshot();
   renderLines();
   saveSession();
 }
@@ -1554,8 +1564,11 @@ function deleteLine(id) {
   const i = lines.findIndex(l => l.id === id);
   if (i === -1) return;
   lines.splice(i, 1);
+  changedIndices = new Set([...changedIndices].filter(idx => idx !== i).map(idx => idx > i ? idx - 1 : idx));
+  flaggedLines    = new Map([...flaggedLines].filter(([idx]) => idx !== i).map(([idx, v]) => [idx > i ? idx - 1 : idx, v]));
+  originalTextById.delete(id);
+  invalidateReviewSnapshot();
   renderLines();
-  updateUndoBtn();
   if (!lines.length) {
     document.getElementById('dot-2').classList.remove('done');
     document.getElementById('dot-3').classList.remove('active');
@@ -1587,6 +1600,7 @@ function updateLine(id, val) {
       if (reasonEl) reasonEl.remove();
     }
   }
+  originalTextById.delete(id);
   saveSession();
 }
 
@@ -1642,6 +1656,7 @@ function renderLines() {
           onblur="checkFlaggedCorrection(${line.id}, this.value); updateLine(${line.id}, this.value); clearActiveLine(${line.id})"
           onfocus="setActiveLine(${line.id}, this)"
         >${escHtml(line.text)}</textarea>
+        ${(changedIndices.has(i) || flag) ? `<button class="line-revert" onclick="revertLine(${line.id})" title="Revert to what was dictated">↺</button>` : ''}
         <button class="line-del" onclick="deleteLine(${line.id})" title="Remove line">×</button>
       </div>
       ${flag ? `<div class="flag-reason">⚠ ${escHtml(flag.reason)}</div>` : ''}
@@ -1991,14 +2006,18 @@ async function reviewWithAI() {
 
     const { lines: reviewedLines, notes: reviewedNotes } = parseReviewToolInput(toolUseBlock.input, lines.length);
 
+    lastReviewSnapshot = lines.map(l => ({ id: l.id, text: l.text }));
+    originalTextById   = new Map();
     changedIndices = new Set();
     flaggedLines    = new Map();
     reviewedLines.forEach((item, i) => {
       if (item.text.toLowerCase() !== lines[i].text.trim().toLowerCase()) {
         changedIndices.add(i);
+        originalTextById.set(lines[i].id, lines[i].text);
       }
       if (item.flagged) {
         flaggedLines.set(i, { reason: item.reason, aiText: item.text });
+        originalTextById.set(lines[i].id, lines[i].text);
       }
     });
     // Same count/order as the original lines (enforced by
@@ -2010,6 +2029,8 @@ async function reviewWithAI() {
 
     const n = changedIndices.size;
     const f = flaggedLines.size;
+    document.getElementById('undo-review-btn').classList.toggle('hidden', n === 0 && f === 0);
+    if (n === 0 && f === 0) lastReviewSnapshot = null;
     toast(
       n === 0 && f === 0 ? 'No changes needed ✓' :
       f === 0 ? `${n} line${n > 1 ? 's' : ''} corrected — check highlighted` :
@@ -2027,6 +2048,41 @@ async function reviewWithAI() {
 
   btn.disabled = false;
   btn.textContent = '✦ Review with AI';
+}
+
+// Reverts every line touched by the most recent AI review back to what
+// was dictated before it ran. Only available right after that review —
+// any structural edit (insert/delete/reorder/new dictation) invalidates
+// it via invalidateReviewSnapshot(), since the snapshot would otherwise
+// silently undo edits the user made on purpose afterward.
+function undoReview() {
+  if (!lastReviewSnapshot) return;
+  lines = lastReviewSnapshot.map(l => ({ ...l }));
+  changedIndices = new Set();
+  flaggedLines = new Map();
+  originalTextById = new Map();
+  invalidateReviewSnapshot();
+  renderLines();
+  saveSession();
+  toast('Review undone', 'ok');
+}
+
+function invalidateReviewSnapshot() {
+  lastReviewSnapshot = null;
+  document.getElementById('undo-review-btn').classList.add('hidden');
+}
+
+// Reverts a single changed/flagged line back to its pre-review text,
+// leaving every other line from that review untouched.
+function revertLine(id) {
+  const i = lines.findIndex(l => l.id === id);
+  if (i === -1 || !originalTextById.has(id)) return;
+  lines[i].text = originalTextById.get(id);
+  changedIndices.delete(i);
+  flaggedLines.delete(i);
+  originalTextById.delete(id);
+  renderLines();
+  saveSession();
 }
 
 // ════════════════════════════════════════════════════════════════
