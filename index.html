@@ -988,7 +988,7 @@ h1, h2, .label {
     </div>
     <div class="total-row">
       <div class="total-dollar">$</div>
-      <input type="number" id="total-price" class="total-input" placeholder="0.00" step="0.01" min="0">
+      <input type="text" inputmode="decimal" id="total-price" class="total-input" placeholder="0.00" onblur="reformatTotalPrice()">
     </div>
   </div>
 
@@ -1654,7 +1654,8 @@ function autoResize(el) {
 function setActiveLine(id, el) {
   activeLine = { id, el };
   document.getElementById('mic-hint').textContent = 'Hold mic to insert at cursor';
-  if (!('ontouchstart' in window)) document.querySelector('.mic-zone').classList.add('pinned');
+  document.querySelector('.mic-zone').classList.add('pinned');
+  updateMicZoneOffset();
 }
 
 // Called on blur — delayed so mic mousedown can capture first
@@ -1664,9 +1665,31 @@ function clearActiveLine(id) {
       activeLine = null;
       document.getElementById('mic-hint').textContent = 'Hold to speak, release to add';
       document.querySelector('.mic-zone').classList.remove('pinned');
+      updateMicZoneOffset();
     }
     cleanupBlankLines();
   }, 300);
+}
+
+// Keeps the pinned mic bar sitting just above the on-screen keyboard.
+// Plain `position:fixed; bottom:0` stays glued to the bottom of the
+// layout viewport on mobile Safari/Chrome, which the keyboard then
+// covers — visualViewport reports the keyboard's actual height so we
+// can offset the bar above it instead of letting it get tucked behind.
+function updateMicZoneOffset() {
+  const micZone = document.querySelector('.mic-zone');
+  if (!micZone.classList.contains('pinned') || !window.visualViewport) {
+    micZone.style.bottom = '';
+    return;
+  }
+  const vv = window.visualViewport;
+  const keyboardInset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  micZone.style.bottom = keyboardInset + 'px';
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', updateMicZoneOffset);
+  window.visualViewport.addEventListener('scroll', updateMicZoneOffset);
 }
 
 // Removes any scope line left completely blank (e.g. tapped + then
@@ -2259,11 +2282,36 @@ async function transcribeFeedbackRecording() {
 // ════════════════════════════════════════════════════════════════
 //  SUBMIT TO JOBTREAD
 // ════════════════════════════════════════════════════════════════
+// Tolerates commas typed as either a thousands separator ("25,550.50")
+// or, by mistake, as the decimal point ("25,550,50" meaning $25,550.50)
+// — if exactly 2 digits trail the last comma/dot, that's the cents.
+function parsePriceInput(raw) {
+  let s = String(raw || '').trim().replace(/[^0-9.,]/g, '');
+  if (!s) return 0;
+  if (s.includes(',')) {
+    const lastComma = s.lastIndexOf(',');
+    const tail = s.slice(lastComma + 1);
+    if (tail.length <= 2 && !tail.includes('.')) {
+      s = s.slice(0, lastComma).replace(/[.,]/g, '') + '.' + tail;
+    } else {
+      s = s.replace(/,/g, '');
+    }
+  }
+  return parseFloat(s) || 0;
+}
+
+function reformatTotalPrice() {
+  const el = document.getElementById('total-price');
+  const price = parsePriceInput(el.value);
+  el.value = price ? price.toFixed(2) : '';
+}
+
 async function submitToJobTread() {
   if (!selectedJob)  { toast('Select a job first', 'err'); return; }
   if (!lines.length) { toast('Add at least one scope line', 'err'); return; }
 
-  const totalPrice = parseFloat(document.getElementById('total-price').value) || 0;
+  const totalPrice = parsePriceInput(document.getElementById('total-price').value);
+  if (totalPrice <= 0 && !confirm('No price entered — post this exhibit with $0 price?')) return;
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner"></div> Posting…';
