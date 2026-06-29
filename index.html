@@ -436,9 +436,19 @@ h1, h2, .label {
     max-width: 760px;
     background: var(--white);
     box-shadow: 0 -2px 12px rgba(15,23,42,0.12);
-    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
     margin-top: 0;
     z-index: 30;
+  }
+  /* Pinned bar sits right above the keyboard, blocking the line being
+     edited — shrink the button and drop the hint (self-explanatory by
+     now) so it covers less of the text above it. */
+  .mic-zone.pinned .mic-btn {
+    width: 48px; height: 48px;
+    font-size: 20px;
+  }
+  .mic-zone.pinned .mic-hint {
+    display: none;
   }
 }
 .mic-btn {
