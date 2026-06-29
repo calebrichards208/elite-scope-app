@@ -1122,6 +1122,13 @@ let shownJobs  = [];
 let selectedJob    = null;
 let lines          = []; // [{ id, text }] — id is stable across reorders/renders, see nextLineId
 let nextLineId     = 1;
+// Minimum recording duration before sending to OpenAI — clips shorter than
+// this are almost certainly accidental taps, not real dictation. Skipping
+// them avoids hallucinated output and unnecessary API charges.
+const MIN_RECORDING_MS = 500;
+let recordingStartedAt      = 0;
+let notesRecordingStartedAt = 0;
+let feedbackRecordingStartedAt = 0;
 let isListening    = false;
 let currentExhibit = null;
 let existingExhibits = [];
@@ -2212,6 +2219,7 @@ async function startListening() {
   mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) mediaChunks.push(e.data); };
   mediaRecorder.onstop = () => transcribeRecording();
   mediaRecorder.start();
+  recordingStartedAt = Date.now();
 
   isListening = true;
   buttonHeld  = true;
@@ -2236,6 +2244,13 @@ function stopListening() {
 
 async function transcribeRecording() {
   const btn = document.getElementById('mic-btn');
+  if (Date.now() - recordingStartedAt < MIN_RECORDING_MS) {
+    btn.textContent = '🎤';
+    document.getElementById('mic-hint').textContent = activeLine
+      ? 'Hold mic to insert at cursor'
+      : 'Hold to speak, release to add';
+    return;
+  }
   try {
     const blob = new Blob(mediaChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
     const transcript = await transcribeAudio(blob, openaiKey);
@@ -2290,6 +2305,7 @@ async function startNotesMic() {
   notesMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) notesMediaChunks.push(e.data); };
   notesMediaRecorder.onstop = () => transcribeNotesRecording();
   notesMediaRecorder.start();
+  notesRecordingStartedAt = Date.now();
 
   notesListening = true;
   const btn = document.getElementById('notes-mic-btn');
@@ -2312,6 +2328,11 @@ function stopNotesMic() {
 
 async function transcribeNotesRecording() {
   const btn = document.getElementById('notes-mic-btn');
+  if (Date.now() - notesRecordingStartedAt < MIN_RECORDING_MS) {
+    btn.textContent = '🎤';
+    document.getElementById('notes-mic-hint').textContent = 'Hold to speak, release to add';
+    return;
+  }
   try {
     const blob = new Blob(notesMediaChunks, { type: notesMediaRecorder.mimeType || 'audio/webm' });
     const transcript = await transcribeAudio(blob, openaiKey);
@@ -2376,6 +2397,7 @@ async function startFeedbackMic() {
   feedbackMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) feedbackMediaChunks.push(e.data); };
   feedbackMediaRecorder.onstop = () => transcribeFeedbackRecording();
   feedbackMediaRecorder.start();
+  feedbackRecordingStartedAt = Date.now();
 
   feedbackListening = true;
   document.getElementById('feedback-modal-mic-btn').classList.add('listening');
@@ -2390,6 +2412,12 @@ function stopFeedbackMic() {
 }
 
 async function transcribeFeedbackRecording() {
+  if (Date.now() - feedbackRecordingStartedAt < MIN_RECORDING_MS) {
+    document.getElementById('feedback-modal-mic-btn').classList.remove('listening');
+    document.getElementById('feedback-modal-mic-btn').textContent = '🎤';
+    document.getElementById('feedback-modal-mic-hint').textContent = 'Hold to speak, release to fill in text above';
+    return;
+  }
   try {
     const blob = new Blob(feedbackMediaChunks, { type: feedbackMediaRecorder.mimeType || 'audio/webm' });
     const transcript = await transcribeAudio(blob, openaiKey);
