@@ -1413,6 +1413,9 @@ async function pickJob(idx) {
 }
 
 async function selectJob(job) {
+  // Persist the current job's draft before switching away from it
+  if (selectedJob && selectedJob.id !== job.id) saveDraft(selectedJob.id);
+
   selectedJob = job;
   document.getElementById('sel-job-name').textContent = selectedJob.name || 'Untitled Job';
   document.getElementById('sel-job-meta').textContent = selectedJob.number ? '#' + selectedJob.number : '';
@@ -1483,6 +1486,15 @@ async function selectJob(job) {
     showExhibitBanner();
   }
 
+  // Restore any in-progress draft for this job — overrides exhibit items
+  // loaded above so switching back to a job picks up exactly where you left off.
+  const draft = loadDraft(job.id);
+  if (draft && draft.lines.length > 0) {
+    lines = draft.lines.map(text => ({ id: nextLineId++, text }));
+    document.getElementById('additional-notes').value = draft.notes || '';
+    renderLines();
+  }
+
   document.getElementById('badge-1').classList.add('done');
   document.getElementById('badge-1').textContent = '✓';
   document.getElementById('dot-1').classList.remove('active');
@@ -1540,6 +1552,7 @@ function clearAllLines() {
   flaggedLines = new Map();
   originalTextById = new Map();
   invalidateReviewSnapshot();
+  clearDraft(selectedJob?.id);
   document.getElementById('total-price').value = '';
   renderLines();
   document.getElementById('exhibit-banner-text').textContent =
@@ -1691,6 +1704,32 @@ function saveSession() {
     jobId: selectedJob ? selectedJob.id : null
   });
   localStorage.setItem(SESSION_STORAGE_KEY, serializeSession(snapshot));
+  if (selectedJob) saveDraft(selectedJob.id);
+}
+
+// Per-job draft storage — keeps each job's in-progress lines and notes
+// independently so switching between jobs doesn't lose either one.
+const draftKey = id => `ec_scope_draft_${id}`;
+
+function saveDraft(jobId) {
+  if (!jobId) return;
+  localStorage.setItem(draftKey(jobId), JSON.stringify({
+    lines: lines.map(l => l.text),
+    notes: document.getElementById('additional-notes').value
+  }));
+}
+
+function loadDraft(jobId) {
+  try {
+    const raw = localStorage.getItem(draftKey(jobId));
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return Array.isArray(d.lines) ? d : null;
+  } catch { return null; }
+}
+
+function clearDraft(jobId) {
+  if (jobId) localStorage.removeItem(draftKey(jobId));
 }
 
 function renderLines() {
@@ -2581,6 +2620,7 @@ async function submitToJobTread() {
       document.getElementById('total-price').value = '';
       document.getElementById('additional-notes').value = '';
       localStorage.removeItem(SESSION_STORAGE_KEY);
+      clearDraft(selectedJob?.id);
       btn.classList.remove('success-state');
       btn.disabled = false;
       btn.textContent = 'Post Exhibit to JobTread';
