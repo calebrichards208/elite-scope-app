@@ -1329,6 +1329,8 @@ async function loadJobs() {
       lines = savedLines;
       document.getElementById('additional-notes').value = savedNotes;
       renderLines();
+      saveSession(); // selectJob() calls saveSession() before lines are restored, overwriting
+                     // the draft — re-save now so localStorage reflects the actual restored state
     }
 
   } catch (err) {
