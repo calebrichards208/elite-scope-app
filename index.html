@@ -1668,6 +1668,7 @@ function updateLine(id, val) {
     }
   }
   originalTextById.delete(id);
+  maybeHideUndoReview();
   saveSession();
 }
 
@@ -2139,6 +2140,10 @@ function invalidateReviewSnapshot() {
   document.getElementById('undo-review-btn').classList.add('hidden');
 }
 
+function maybeHideUndoReview() {
+  if (changedIndices.size === 0 && flaggedLines.size === 0) invalidateReviewSnapshot();
+}
+
 // Reverts a single changed/flagged line back to its pre-review text,
 // leaving every other line from that review untouched.
 function revertLine(id) {
@@ -2148,6 +2153,7 @@ function revertLine(id) {
   changedIndices.delete(i);
   flaggedLines.delete(i);
   originalTextById.delete(id);
+  maybeHideUndoReview();
   renderLines();
   saveSession();
 }
