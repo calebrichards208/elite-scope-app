@@ -925,9 +925,12 @@ h1, h2, .label {
         <button class="change-btn" onclick="changeJob()">Change</button>
       </div>
       <!-- Exhibit status strip -->
-      <div id="exhibit-banner" class="hidden" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--silver);cursor:pointer" onclick="toggleMode()" title="Tap to switch between exhibit and change order">
-        <div id="exhibit-banner-text" style="font-size:12px;color:var(--slate);font-weight:500"></div>
-        <button onclick="event.stopPropagation(); clearAllLines()" style="font-size:11px;font-family:'DM Sans',sans-serif;color:var(--slate-lt);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;white-space:nowrap" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--slate-lt)'">Clear all</button>
+      <div id="exhibit-banner" class="hidden" style="margin-top:10px;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--silver)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div id="exhibit-banner-text" style="font-size:12px;color:var(--slate);font-weight:500"></div>
+          <button onclick="clearAllLines()" style="font-size:11px;font-family:'DM Sans',sans-serif;color:var(--slate-lt);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;white-space:nowrap" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--slate-lt)'">Clear all</button>
+        </div>
+        <button id="mode-switch-btn" type="button" onclick="toggleMode()" style="margin-top:8px;width:100%;font-size:12px;font-family:'DM Sans',sans-serif;font-weight:600;color:var(--slate);background:#fff;border:1px solid var(--silver);border-radius:6px;padding:8px;cursor:pointer"></button>
       </div>
       <!-- Loading indicator while checking for exhibits -->
       <div id="exhibit-loading" class="hidden" style="margin-top:10px;text-align:center;font-size:12px;color:var(--slate-lt);padding:6px">
@@ -1037,7 +1040,7 @@ h1, h2, .label {
   </div>
 
   <button class="submit-btn" id="submit-btn" onclick="this.disabled=true; submitToJobTread()">
-    Post Exhibit to JobTread
+    Post Exhibit + Generate Proposal
   </button>
 
 </div><!-- /main-screen -->
@@ -1458,6 +1461,18 @@ async function fetchJobCustomer(jobId) {
   };
 }
 
+// The document owns a fresh copy of NOTES, so the boilerplate text has to be
+// read off the budget item and carried over or it renders blank.
+async function fetchNotesItem(notesItemId) {
+  if (!notesItemId) return null;
+  const data = await jtPost({
+    $: { grantKey },
+    costItem: { $: { id: notesItemId }, id: {}, description: {} }
+  });
+  const item = data?.costItem;
+  return item ? { id: item.id, description: item.description || '' } : null;
+}
+
 // createDocument requires fromName, but the templates leave it null — the
 // grant's own user and organization fill it in.
 async function fetchGrantIdentity() {
@@ -1475,17 +1490,18 @@ async function fetchGrantIdentity() {
 // nothing goes to the customer until Alina reviews and sends it in JobTread.
 async function generateDocument(mode, groupLabel, postedItems) {
   const templateId = documentTemplateIdFor(mode);
-  const [template, customer, identity] = await Promise.all([
+  const [template, customer, identity, notes] = await Promise.all([
     fetchDocumentTemplate(templateId),
     fetchJobCustomer(selectedJob.id),
-    fetchGrantIdentity()
+    fetchGrantIdentity(),
+    fetchNotesItem(existingNotesId)
   ]);
   if (!template) throw new Error('Could not load the document template');
   if (!customer.toName) throw new Error('Job has no customer contact to address the document to');
 
   const params = buildDocumentParams(template, {
     jobId:     selectedJob.id,
-    lineItems: documentLineItems(mode, groupLabel, postedItems, existingNotesId),
+    lineItems: documentLineItems(mode, groupLabel, postedItems, notes),
     ...customer,
     ...identity
   });
@@ -1583,10 +1599,10 @@ async function selectJob(job) {
 
     hide('exhibit-loading');
 
-    // Restore the mode from any in-progress draft BEFORE showScopeBanner()
-    // runs, so the banner and any restored lines below always agree.
-    const draft = loadDraft(job.id);
-    if (draft && (draft.mode === 'exhibit' || draft.mode === 'changeOrder')) currentMode = draft.mode;
+    // A saved draft deliberately does NOT override the detected mode. It used
+    // to, and a stale draft then kept announcing "Contract signed" on a job
+    // whose documents had all been deleted. JobTread is the source of truth
+    // for mode; the draft only carries lines and notes.
 
     if (existingExhibits.length === 0) {
       currentExhibit = 'A';
@@ -1675,10 +1691,19 @@ function toggleMode() {
 
 function updateSubmitLabel() {
   const btn = document.getElementById('submit-btn');
-  if (!btn || btn.disabled) return;
-  btn.textContent = currentMode === 'changeOrder'
-    ? 'Post Change Order to JobTread'
-    : 'Post Exhibit to JobTread';
+  if (btn && !btn.disabled) {
+    btn.textContent = currentMode === 'changeOrder'
+      ? 'Post Change Order + Generate Document'
+      : 'Post Exhibit + Generate Proposal';
+  }
+  // Name the destination, not the action — "Switch to…" reads as a label for
+  // where you are, which is exactly the confusion the bare banner tap caused.
+  const modeBtn = document.getElementById('mode-switch-btn');
+  if (modeBtn) {
+    modeBtn.textContent = currentMode === 'changeOrder'
+      ? '⇄  This is not a change order — switch to Exhibit'
+      : '⇄  This is a change order — switch to Change Order';
+  }
 }
 
 function clearAllLines() {
@@ -2845,7 +2870,7 @@ async function submitToJobTread() {
     const isCors = err.message.includes('Failed to fetch');
     toast(isCors ? 'CORS error — contact whoever maintains this app' : 'Error: ' + err.message, 'err');
     btn.disabled = false;
-    btn.textContent = 'Post to JobTread';
+    updateSubmitLabel();
   }
 }
 

@@ -169,25 +169,45 @@ test('an exhibit document rebuilds its group and appends NOTES', () => {
     { id: 'ci-1', name: 'Demo Bathroom' },
     { id: 'ci-2', name: 'Install Vanity', unitPrice: 3000, isTaxable: true }
   ];
-  const items = documentLineItems('exhibit', 'Exhibit B', posted, 'notes-1');
+  const items = documentLineItems('exhibit', 'Exhibit B', posted,
+    { id: 'notes-1', description: '- Permit not included.' });
 
   assert.strictEqual(items.length, 2);
   assert.strictEqual(items[0]._type, 'costGroup');
   assert.strictEqual(items[0].name, 'Exhibit B');
   assert.deepStrictEqual(items[0].lineItems, [
-    { _type: 'costItem', name: 'Demo Bathroom', showQuantity: false, jobCostItemId: 'ci-1' },
+    { _type: 'costItem', name: 'Demo Bathroom', showQuantity: false,
+      unitCost: 0, jobCostItemId: 'ci-1' },
     { _type: 'costItem', name: 'Install Vanity', showQuantity: false,
-      jobCostItemId: 'ci-2', unitPrice: 3000, isTaxable: true }
+      unitCost: 0, jobCostItemId: 'ci-2', unitPrice: 3000, isTaxable: true }
   ]);
   assert.deepStrictEqual(items[1], {
     _type: 'costItem', name: 'NOTES',
-    showQuantity: false, showDescription: true, jobCostItemId: 'notes-1'
+    showQuantity: false, showDescription: true, unitCost: 0,
+    jobCostItemId: 'notes-1', description: '- Permit not included.'
   });
+});
+
+test('every document line carries a cost so the document can be approved', () => {
+  // JobTread blocks approval with "A cost must be set for X" otherwise, and
+  // mode detection depends on documents reaching approved status.
+  const items = documentLineItems('exhibit', 'Exhibit A',
+    [{ id: 'a', name: 'one' }, { id: 'b', name: 'two', unitPrice: 500 }],
+    { id: 'n', description: 'terms' });
+  items[0].lineItems.forEach(l => assert.strictEqual(l.unitCost, 0));
+  assert.strictEqual(items[1].unitCost, 0);
+});
+
+test('NOTES boilerplate is carried into the document, not left blank', () => {
+  const items = documentLineItems('exhibit', 'Exhibit A', [{ id: 'a', name: 'x' }],
+    { id: 'n', description: '- Building permit not included in the price.' });
+  assert.strictEqual(items[1].description, '- Building permit not included in the price.');
 });
 
 test('a change order rebuilds only its own group, never NOTES', () => {
   const items = documentLineItems('changeOrder', 'Change Order 2',
-    [{ id: 'ci-9', name: 'Relocate Valve', unitPrice: 500, isTaxable: true }], 'notes-1');
+    [{ id: 'ci-9', name: 'Relocate Valve', unitPrice: 500, isTaxable: true }],
+    { id: 'notes-1', description: 'terms' });
   assert.strictEqual(items.length, 1);
   assert.strictEqual(items[0].name, 'Change Order 2');
 });
@@ -200,7 +220,8 @@ test('an exhibit document omits NOTES when the job has none', () => {
 test('document line items never reference budget groups by id', () => {
   // JobTread rejects an existing-group id: documents own their own copies,
   // linked back to the budget via jobCostItemId.
-  const items = documentLineItems('exhibit', 'Exhibit A', [{ id: 'ci-1', name: 'x' }], 'n');
+  const items = documentLineItems('exhibit', 'Exhibit A', [{ id: 'ci-1', name: 'x' }],
+    { id: 'n' });
   const json = JSON.stringify(items);
   assert.strictEqual(json.includes('existingCostGroup'), false);
   assert.strictEqual(json.includes('existingCostItem'), false);
