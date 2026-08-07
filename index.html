@@ -80,6 +80,11 @@ body {
   color: var(--navy);
   min-height: 100vh;
   -webkit-tap-highlight-color: transparent;
+  /* Kills double-tap-to-zoom, which fired when a tap to dismiss the keyboard
+     was followed straight away by a tap on a small control like the line ×.
+     Pinch-to-zoom still works — deliberately not disabled, since iOS ignores
+     user-scalable=no anyway and Sergey may need to zoom. */
+  touch-action: manipulation;
 }
 
 h1, h2, .label {
@@ -370,8 +375,14 @@ h1, h2, .label {
   cursor: pointer;
   font-size: 24px;
   line-height: 1;
-  padding: 6px 8px;
-  margin-top: 2px;
+  /* 44px is the minimum comfortable touch target; the old 6px/8px padding
+     made this easy to miss on a phone. */
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   transition: color 0.15s;
   flex-shrink: 0;
 }
