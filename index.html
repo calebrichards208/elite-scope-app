@@ -925,9 +925,9 @@ h1, h2, .label {
         <button class="change-btn" onclick="changeJob()">Change</button>
       </div>
       <!-- Exhibit status strip -->
-      <div id="exhibit-banner" class="hidden" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--silver)">
+      <div id="exhibit-banner" class="hidden" style="margin-top:10px;display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg);border-radius:6px;border:1px solid var(--silver);cursor:pointer" onclick="toggleMode()" title="Tap to switch between exhibit and change order">
         <div id="exhibit-banner-text" style="font-size:12px;color:var(--slate);font-weight:500"></div>
-        <button onclick="clearAllLines()" style="font-size:11px;font-family:'DM Sans',sans-serif;color:var(--slate-lt);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;white-space:nowrap" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--slate-lt)'">Clear all</button>
+        <button onclick="event.stopPropagation(); clearAllLines()" style="font-size:11px;font-family:'DM Sans',sans-serif;color:var(--slate-lt);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;white-space:nowrap" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--slate-lt)'">Clear all</button>
       </div>
       <!-- Loading indicator while checking for exhibits -->
       <div id="exhibit-loading" class="hidden" style="margin-top:10px;text-align:center;font-size:12px;color:var(--slate-lt);padding:6px">
@@ -1133,6 +1133,9 @@ let feedbackRecordingStartedAt = 0;
 let isListening    = false;
 let currentExhibit = null;
 let existingExhibits = [];
+let currentMode         = 'exhibit'; // 'exhibit' | 'changeOrder'
+let currentChangeOrder  = null;
+let existingChangeOrders = [];
 let existingNotesId  = null;
 let mediaRecorder = null;
 let mediaChunks    = [];
@@ -1394,6 +1397,20 @@ async function fetchJobScopeItems(jobId) {
   return items;
 }
 
+async function fetchJobDocuments(jobId) {
+  const data = await jtPost({
+    $: { grantKey },
+    organization: {
+      $: { id: orgId },
+      documents: {
+        $: { where: [['job', 'id'], '=', jobId], size: 100 },
+        nodes: { id: {}, name: {}, type: {}, status: {} }
+      }
+    }
+  });
+  return data?.organization?.documents?.nodes || [];
+}
+
 function getJobStage(job) {
   const cfv = (job.customFieldValues?.nodes || []).find(
     n => n.customField?.id === PIPELINE_STAGE_FIELD_ID
@@ -1456,32 +1473,43 @@ async function selectJob(job) {
   hide('exhibit-banner');
   show('exhibit-loading');
 
-  existingExhibits = [];
-  existingNotesId  = null;
-  currentExhibit   = null;
+  existingExhibits     = [];
+  existingNotesId      = null;
+  currentExhibit       = null;
+  currentMode          = 'exhibit';
+  currentChangeOrder   = null;
+  existingChangeOrders = [];
   lines            = [];
   renderLines();
 
   try {
-    const items = await fetchJobScopeItems(selectedJob.id);
+    const [items, documents] = await Promise.all([
+      fetchJobScopeItems(selectedJob.id),
+      fetchJobDocuments(selectedJob.id).catch(() => [])
+    ]);
 
-    existingNotesId  = findNotesItemId(items);
-    existingExhibits = parseExhibits(items);
+    existingNotesId      = findNotesItemId(items);
+    existingExhibits     = parseExhibits(items);
+    existingChangeOrders = parseChangeOrders(items);
+    currentMode          = detectMode(documents);
 
     hide('exhibit-loading');
 
     if (existingExhibits.length === 0) {
       currentExhibit = 'A';
-      showExhibitBanner();
+      showScopeBanner();
     } else {
-      showExhibitBanner();
+      showScopeBanner();
     }
+    updateSubmitLabel();
 
   } catch(e) {
     hide('exhibit-loading');
     currentExhibit = 'A';
+    currentMode = 'exhibit';
     console.warn('Could not fetch exhibits:', e.message);
-    showExhibitBanner();
+    showScopeBanner();
+    updateSubmitLabel();
   }
 
   // Restore any in-progress draft for this job — overrides exhibit items
@@ -1501,8 +1529,22 @@ async function selectJob(job) {
   saveSession();
 }
 
-function showExhibitBanner() {
+function showScopeBanner() {
   const bannerText = document.getElementById('exhibit-banner-text');
+
+  if (currentMode === 'changeOrder') {
+    const numbers = existingChangeOrders.map(o => o.number);
+    currentChangeOrder = nextChangeOrderNumber(numbers);
+    lines = [];
+    renderLines();
+    document.getElementById('total-price').value = '';
+    bannerText.textContent =
+      `Contract signed · Creating ${changeOrderGroupName(currentChangeOrder)}`;
+    show('exhibit-banner');
+    return;
+  }
+
+  currentChangeOrder = null;
 
   if (existingExhibits.length === 0) {
     currentExhibit = 'A';
@@ -1524,6 +1566,20 @@ function showExhibitBanner() {
     show('exhibit-banner');
     toast(`Exhibit ${lastLetter} loaded`, 'ok');
   }
+}
+
+function toggleMode() {
+  currentMode = currentMode === 'changeOrder' ? 'exhibit' : 'changeOrder';
+  showScopeBanner();
+  updateSubmitLabel();
+}
+
+function updateSubmitLabel() {
+  const btn = document.getElementById('submit-btn');
+  if (!btn || btn.disabled) return;
+  btn.textContent = currentMode === 'changeOrder'
+    ? 'Post Change Order to JobTread'
+    : 'Post Exhibit to JobTread';
 }
 
 function clearAllLines() {
