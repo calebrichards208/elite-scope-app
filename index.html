@@ -1492,11 +1492,14 @@ async function suggestProjectName(scopeLines) {
         content:
           'These are the scope-of-work lines for a residential construction job:\n\n' +
           scopeLines.map(l => '- ' + l).join('\n') +
-          '\n\nReply with ONLY the project type, 1-2 words, title case, no punctuation ' +
-          'or explanation. It gets appended to a customer name, so keep it short — ' +
-          '"Bathroom", "Shower", "Deck", "Kitchen", "Basement", "Laundry Room". ' +
-          'If the work spans several areas, use the dominant one, or "Remodel" if ' +
-          'there is no clear winner.'
+          '\n\nName the project type. Elite names jobs using these terms — pick the ' +
+          'one that fits:\n' + PROJECT_NAME_VOCABULARY.map(v => '- ' + v).join('\n') +
+          '\n\nUse "Tub to Shower" when an existing tub is being replaced by a shower. ' +
+          'Use "Wet Area" for a shower/tub surround that is not a full bathroom. ' +
+          'If the work spans several areas, pick the dominant one; use "Remodel" only ' +
+          'when there is genuinely no dominant area. If none of the terms fit, reply ' +
+          'with your own 1-2 word title-case name instead.\n\n' +
+          'Reply with ONLY the name. No punctuation, quotes, or explanation.'
       }]
     })
   });

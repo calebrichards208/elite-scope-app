@@ -336,7 +336,8 @@ test('documentTaxRate handles a missing rate or address', () => {
 
 // ── Job naming ─────────────────────────────────────────────────────
 const {
-  JOB_NAME_MAX_LENGTH, needsProjectName, appendProjectName
+  JOB_NAME_MAX_LENGTH, needsProjectName, appendProjectName,
+  projectNameVariants, PROJECT_NAME_VOCABULARY
 } = require('../lib/scopeGroups.js');
 
 test('a bare customer name needs a project word', () => {
@@ -356,12 +357,38 @@ test('appendProjectName adds the descriptor', () => {
   assert.strictEqual(appendProjectName('Doreen Smith', 'Bathroom'), 'Doreen Smith Bathroom');
 });
 
-test('appendProjectName falls back to the first descriptor word when tight', () => {
-  // 'Christy Craver Jr Bathroom Remodel' is 34 — too long. 'Christy Craver Jr
-  // Bathroom' is 26, so the first word survives rather than truncating.
-  const result = appendProjectName('Christy Craver Jr', 'Bathroom Remodel');
+test('appendProjectName shortens to a sensible variant when tight', () => {
+  const result = appendProjectName('Christy Craver Jr', 'Bathroom');
   assert.strictEqual(result, 'Christy Craver Jr Bathroom');
   assert.ok(result.length <= JOB_NAME_MAX_LENGTH);
+});
+
+test('a tight name shortens Tub to Shower to Shower, never to Tub', () => {
+  // 'Jenn Replogle Smith Tub to Shower' is 33 — too long.
+  const result = appendProjectName('Jenn Replogle Smith', 'Tub to Shower');
+  assert.strictEqual(result, 'Jenn Replogle Smith Shower');
+  assert.ok(!result.endsWith(' Tub'), 'must never shorten to the word Tub');
+});
+
+test('multi-word descriptors shorten to a real term, not their first word', () => {
+  assert.deepStrictEqual(projectNameVariants('Tub to Shower'), ['Tub to Shower', 'Shower']);
+  assert.deepStrictEqual(projectNameVariants('Basement Finish'), ['Basement Finish', 'Basement']);
+  assert.deepStrictEqual(projectNameVariants('Laundry Room'), ['Laundry Room', 'Laundry']);
+  assert.deepStrictEqual(projectNameVariants('Master Bathroom'), ['Master Bathroom', 'Bathroom', 'Bath']);
+});
+
+test('the vocabulary covers the descriptors actually used in the account', () => {
+  ['Bathroom', 'Master Bathroom', 'Shower Remodel', 'Tub to Shower',
+   'Wet Area', 'Deck', 'Kitchen', 'Basement Finish', 'Laundry Room']
+    .forEach(term => assert.ok(PROJECT_NAME_VOCABULARY.includes(term), term));
+});
+
+test('every vocabulary term fits a typical customer name', () => {
+  PROJECT_NAME_VOCABULARY.forEach(term => {
+    const out = appendProjectName('Doreen Kruger', term);
+    assert.ok(out.length <= JOB_NAME_MAX_LENGTH, `${out} is ${out.length}`);
+    assert.notStrictEqual(out, 'Doreen Kruger', `${term} produced no suffix`);
+  });
 });
 
 test('appendProjectName keeps every result within the cap', () => {
