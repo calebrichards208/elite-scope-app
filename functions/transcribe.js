@@ -3,11 +3,19 @@
 // guidance for this model, keep it a short vocabulary/context hint rather
 // than an instruction list — that's RULES.md's job, applied in the separate
 // AI review pass. Extend this line as new mishearings turn up.
+// Written in the target style on purpose. Whisper mirrors the prompt's casing,
+// so a title-case hint produces title-case transcripts that the cleanup pass
+// then has to undo. Sentence case here means dictation usually lands correct
+// and the cleanup pass has nothing to do.
 const TRANSCRIPTION_VOCAB_HINT =
-  'A contractor is dictating a construction scope-of-work line item. Common phrases: ' +
-  'Furnish and Install, Install Owner Provided, Remove and Replace, Owner to Pay Electrician Directly, ' +
-  'Owner to Pay Plumber Directly. Common terms: Durock, Green Board, Sheetrock, OSB, LVP, LVT, joists, ' +
-  'sistering, rim joist, headers, blocking, niche, vanity, shower valve, shower pan. ' +
+  'A contractor is dictating a construction scope-of-work line item. Write in sentence case: ' +
+  'capitalize the first word only, plus brand names and acronyms. Common phrases: ' +
+  'Furnish and install shower door. Install owner provided vanity. Remove and replace drywall. ' +
+  'Owner to pay electrician directly. Owner to pay plumber directly. ' +
+  'Brand names and acronyms always keep their capitals: Moen, Delta, Kohler, Durock, Sheetrock, ' +
+  'Schluter, Hardie, Posi-Temp, LVP, LVT, OSB, MDF, PVC, PEX, GFCI, TP holder. ' +
+  'Ordinary terms stay lowercase: green board, joists, sistering, rim joist, headers, blocking, ' +
+  'niche, vanity, shower valve, shower pan, subfloor, baseboard. ' +
   'Measurements are written in shorthand, not spelled out: 2x4, 2x6x8, 12", 6\', 5\'6".';
 
 export async function onRequestPost(context) {

@@ -50,7 +50,14 @@ test('forwards a construction-vocabulary prompt to bias transcription accuracy',
     await onRequestPost({ request });
     const prompt = capturedForm.get('prompt');
     assert.ok(prompt && prompt.length > 0);
-    assert.match(prompt, /Furnish and Install/);
+    // Whisper mirrors the prompt's casing, so the hint must be written in the
+    // target style — sentence case, with brands and acronyms capitalized.
+    assert.match(prompt, /sentence case/i);
+    assert.match(prompt, /Furnish and install/);
+    assert.doesNotMatch(prompt, /Furnish and Install/);
+    ['Moen', 'Durock', 'Sheetrock', 'LVP', 'OSB'].forEach(term =>
+      assert.match(prompt, new RegExp(`\\b${term}\\b`)));
+    assert.match(prompt, /green board/);
   } finally {
     global.fetch = originalFetch;
   }
