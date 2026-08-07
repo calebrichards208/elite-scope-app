@@ -930,7 +930,7 @@ h1, h2, .label {
           <div id="exhibit-banner-text" style="font-size:12px;color:var(--slate);font-weight:500"></div>
           <button onclick="clearAllLines()" style="font-size:11px;font-family:'DM Sans',sans-serif;color:var(--slate-lt);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;white-space:nowrap" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--slate-lt)'">Clear all</button>
         </div>
-        <div style="display:flex;margin-top:8px;border:1px solid var(--silver);border-radius:6px;overflow:hidden">
+        <div id="mode-tabs" class="hidden" style="display:flex;margin-top:8px;border:1px solid var(--silver);border-radius:6px;overflow:hidden">
           <button id="mode-tab-exhibit" type="button" onclick="setMode('exhibit')" style="flex:1;font-size:13px;font-family:'DM Sans',sans-serif;font-weight:600;border:none;padding:9px;cursor:pointer">Exhibit</button>
           <button id="mode-tab-changeorder" type="button" onclick="setMode('changeOrder')" style="flex:1;font-size:13px;font-family:'DM Sans',sans-serif;font-weight:600;border:none;border-left:1px solid var(--silver);padding:9px;cursor:pointer">Change Order</button>
         </div>
@@ -1140,6 +1140,9 @@ let isListening    = false;
 let currentExhibit = null;
 let existingExhibits = [];
 let currentMode         = 'exhibit'; // 'exhibit' | 'changeOrder'
+// True once the job has an approved customerOrder. Change orders amend a
+// signed contract, so the mode is not offered at all until one exists.
+let jobIsSigned         = false;
 let currentChangeOrder  = null;
 let existingChangeOrders = [];
 let existingNotesId  = null;
@@ -1584,6 +1587,7 @@ async function selectJob(job) {
   existingNotesId      = null;
   currentExhibit       = null;
   currentMode          = 'exhibit';
+  jobIsSigned          = false;
   currentChangeOrder   = null;
   existingChangeOrders = [];
   lines            = [];
@@ -1599,6 +1603,7 @@ async function selectJob(job) {
     existingExhibits     = parseExhibits(items);
     existingChangeOrders = parseChangeOrders(items);
     currentMode          = detectMode(documents);
+    jobIsSigned          = currentMode === 'changeOrder';
 
     hide('exhibit-loading');
 
@@ -1619,6 +1624,7 @@ async function selectJob(job) {
     hide('exhibit-loading');
     currentExhibit = 'A';
     currentMode = 'exhibit';
+    jobIsSigned = false;
     console.warn('Could not fetch exhibits:', e.message);
     showScopeBanner();
     updateSubmitLabel();
@@ -1684,6 +1690,9 @@ function setMode(mode) {
   const btn = document.getElementById('submit-btn');
   if (btn && btn.disabled) return;   // never switch mid-post
   if (mode === currentMode) return;
+  // Change orders amend a signed contract; the tabs are hidden until one
+  // exists, so this only fires if something calls setMode directly.
+  if (mode === 'changeOrder' && !jobIsSigned) return;
 
   // Park the current mode's work before leaving it, then pick up whatever was
   // left in the mode being switched to, so tabbing back and forth loses nothing.
@@ -1701,6 +1710,11 @@ function updateSubmitLabel() {
       ? 'Post Change Order + Generate Document'
       : 'Post Exhibit + Generate Proposal';
   }
+  // The tabs only exist once the job has a signed contract. Before that a
+  // change order has nothing to amend, so the choice is not offered at all.
+  const tabWrap = document.getElementById('mode-tabs');
+  if (tabWrap) tabWrap.classList.toggle('hidden', !jobIsSigned);
+
   // A two-tab control: the selected tab states what this IS, the other is the
   // way to change it. Earlier wording put a claim in the button that
   // contradicted the banner above it.
