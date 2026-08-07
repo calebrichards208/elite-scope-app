@@ -2566,19 +2566,35 @@ async function submitToJobTread() {
   btn.disabled = true;
   btn.innerHTML = '<div class="spinner"></div> Posting…';
 
-  const exhibitName    = `Exhibit ${currentExhibit || 'A'}`;
-  const isFirstExhibit = existingExhibits.length === 0;
+  const isChangeOrder  = currentMode === 'changeOrder';
+  const groupLabel     = isChangeOrder
+    ? changeOrderGroupName(currentChangeOrder || 1)
+    : `Exhibit ${currentExhibit || 'A'}`;
+  const isFirstExhibit = !isChangeOrder && existingExhibits.length === 0;
 
   try {
-    const lastExhibitGroupId = existingExhibits.length > 0
-      ? existingExhibits[existingExhibits.length - 1].id
-      : null;
     const groupParams = {
       jobId:        selectedJob.id,
-      name:         exhibitName,
+      name:         groupLabel,
       showChildren: true
     };
-    if (lastExhibitGroupId) groupParams.positionAfter = { id: lastExhibitGroupId, type: 'costGroup' };
+
+    // Change orders sit flat, after NOTES or after the last change order.
+    // Never nested under a parent group — one group must map to exactly one
+    // signable document.
+    if (isChangeOrder) {
+      const lastOrder = existingChangeOrders[existingChangeOrders.length - 1];
+      if (lastOrder) {
+        groupParams.positionAfter = { id: lastOrder.id, type: 'costGroup' };
+      } else if (existingNotesId) {
+        groupParams.positionAfter = { id: existingNotesId, type: 'costItem' };
+      }
+    } else if (existingExhibits.length > 0) {
+      groupParams.positionAfter = {
+        id: existingExhibits[existingExhibits.length - 1].id,
+        type: 'costGroup'
+      };
+    }
     const groupResult = await jtPost({
       $: { grantKey },
       createCostGroup: {
@@ -2587,7 +2603,7 @@ async function submitToJobTread() {
       }
     });
     const costGroupId = groupResult?.createCostGroup?.createdCostGroup?.id;
-    if (!costGroupId) throw new Error('Could not create cost group for ' + exhibitName);
+    if (!costGroupId) throw new Error('Could not create cost group for ' + groupLabel);
 
     for (let i = 0; i < lines.length; i++) {
       const isLast  = i === lines.length - 1;
@@ -2617,7 +2633,11 @@ async function submitToJobTread() {
       ? additionalNotes.split('\n').map(l => l.trim().replace(/^-\s*/, '')).filter(Boolean)
       : [];
 
-    if (isFirstExhibit) {
+    if (isChangeOrder) {
+      // No NOTES item. The Change Order template footer carries the
+      // post-signing terms, and the job-level NOTES belongs to a signed
+      // contract that must not be edited retroactively.
+    } else if (isFirstExhibit) {
       const standardNotes = [
         'All waste, nails, and excess material will be cleaned up and disposed of upon completion.',
         'All work to be performed and applied in a professional manner.',
@@ -2660,8 +2680,13 @@ async function submitToJobTread() {
     }
 
     btn.classList.add('success-state');
-    btn.innerHTML = `✓ ${exhibitName} posted!`;
-    toast(`${exhibitName} posted! Open JobTread to generate the proposal.`, 'ok');
+    btn.innerHTML = `✓ ${groupLabel} posted!`;
+    toast(
+      isChangeOrder
+        ? `${groupLabel} posted! Open JobTread to send the change order.`
+        : `${groupLabel} posted! Open JobTread to generate the proposal.`,
+      'ok'
+    );
 
     setTimeout(async () => {
       lines = [];
@@ -2672,25 +2697,33 @@ async function submitToJobTread() {
       clearDraft(selectedJob?.id);
       btn.classList.remove('success-state');
       btn.disabled = false;
-      btn.textContent = 'Post Exhibit to JobTread';
+      updateSubmitLabel();
       document.getElementById('dot-2').classList.remove('done');
       document.getElementById('dot-3').classList.remove('active');
 
       try {
         const items = await fetchJobScopeItems(selectedJob.id);
 
-        existingNotesId  = findNotesItemId(items);
-        existingExhibits = parseExhibits(items);
+        existingNotesId      = findNotesItemId(items);
+        existingExhibits     = parseExhibits(items);
+        existingChangeOrders = parseChangeOrders(items);
 
-        const newLetters = existingExhibits.map(e => e.letter);
-        const newNext    = nextExhibitLetter(newLetters);
-        currentExhibit   = newNext;
-        const lastPosted = newLetters[newLetters.length - 1];
-        document.getElementById('exhibit-banner-text').textContent =
-          `Exhibit ${lastPosted} posted — ready for Exhibit ${newNext}`;
+        if (isChangeOrder) {
+          const posted = currentChangeOrder;
+          currentChangeOrder = nextChangeOrderNumber(existingChangeOrders.map(o => o.number));
+          document.getElementById('exhibit-banner-text').textContent =
+            `${changeOrderGroupName(posted)} posted — ready for ${changeOrderGroupName(currentChangeOrder)}`;
+        } else {
+          const newLetters = existingExhibits.map(e => e.letter);
+          const newNext    = nextExhibitLetter(newLetters);
+          currentExhibit   = newNext;
+          const lastPosted = newLetters[newLetters.length - 1];
+          document.getElementById('exhibit-banner-text').textContent =
+            `Exhibit ${lastPosted} posted — ready for Exhibit ${newNext}`;
+        }
         show('exhibit-banner');
       } catch(e) {
-        console.warn('Could not refresh exhibits:', e.message);
+        console.warn('Could not refresh scope groups:', e.message);
       }
     }, 2800);
 
