@@ -2767,7 +2767,7 @@ async function submitToJobTread() {
         'Price is subject to change if not accepted within 15 days of bid date.'
       ];
       const fullNotes = [...standardNotes, ...extraNotes].map(l => '- ' + l).join('\n');
-      await jtPost({
+      const notesResult = await jtPost({
         $: { grantKey },
         createCostItem: {
           $: {
@@ -2782,6 +2782,9 @@ async function submitToJobTread() {
           createdCostItem: { id: {}, name: {} }
         }
       });
+      // Without this the first proposal on a new job ships with no NOTES block
+      // at all: the document reads existingNotesId, which would still be null.
+      existingNotesId = notesResult?.createCostItem?.createdCostItem?.id || existingNotesId;
     } else if (extraNotes.length > 0 && existingNotesId) {
       const notesData = await jtPost({
         $: { grantKey },
