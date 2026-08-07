@@ -1110,6 +1110,7 @@ h1, h2, .label {
 <script src="lib/sessionStore.js"></script>
 <script src="lib/reviewResponse.js"></script>
 <script src="lib/githubIssue.js"></script>
+<script src="lib/scopeGroups.js"></script>
 <script>
 'use strict';
 
@@ -1364,6 +1365,35 @@ async function createCostItem(jobId, name, unitPrice, isTaxable = false, unitCos
 // ════════════════════════════════════════════════════════════════
 //  JOB SELECTION
 // ════════════════════════════════════════════════════════════════
+// Fetches every cost item on a job, including copies owned by documents.
+// Callers filter with budgetItemsOnly() — see lib/scopeGroups.js.
+async function fetchJobScopeItems(jobId) {
+  let items = [];
+  let page  = null;
+  do {
+    const params = { where: [['job', 'id'], '=', jobId], size: 100 };
+    if (page) params.page = page;
+    const data = await jtPost({
+      $: { grantKey },
+      organization: {
+        $: { id: orgId },
+        costItems: {
+          $: params,
+          nextPage: {},
+          nodes: {
+            id: {}, name: {}, unitPrice: {},
+            costGroup: { id: {}, name: {} },
+            document: { id: {} }
+          }
+        }
+      }
+    });
+    items = items.concat(data?.organization?.costItems?.nodes || []);
+    page  = data?.organization?.costItems?.nextPage || null;
+  } while (page);
+  return items;
+}
+
 function getJobStage(job) {
   const cfv = (job.customFieldValues?.nodes || []).find(
     n => n.customField?.id === PIPELINE_STAGE_FIELD_ID
@@ -1433,44 +1463,10 @@ async function selectJob(job) {
   renderLines();
 
   try {
-    let items = [];
-    let page  = null;
-    do {
-      const params = { where: [['job', 'id'], '=', selectedJob.id], size: 100 };
-      if (page) params.page = page;
-      const data = await jtPost({
-        $: { grantKey },
-        organization: {
-          $: { id: orgId },
-          costItems: {
-            $: params,
-            nextPage: {},
-            nodes: {
-              id: {}, name: {}, unitPrice: {},
-              costGroup: { id: {}, name: {} }
-            }
-          }
-        }
-      });
-      const batch = data?.organization?.costItems?.nodes || [];
-      items = items.concat(batch);
-      page  = data?.organization?.costItems?.nextPage || null;
-    } while (page);
+    const items = await fetchJobScopeItems(selectedJob.id);
 
-    const notesItem = items.find(i => i.name === 'NOTES' && !i.costGroup);
-    if (notesItem) existingNotesId = notesItem.id;
-
-    const exhibitMap = {};
-    items.forEach(item => {
-      if (item.costGroup?.name?.startsWith('Exhibit ')) {
-        const letter = item.costGroup.name.replace('Exhibit ', '').trim();
-        if (!exhibitMap[letter]) {
-          exhibitMap[letter] = { id: item.costGroup.id, name: item.costGroup.name, letter, items: [] };
-        }
-        exhibitMap[letter].items.push(item);
-      }
-    });
-    existingExhibits = Object.values(exhibitMap).sort((a, b) => a.letter.localeCompare(b.letter));
+    existingNotesId  = findNotesItemId(items);
+    existingExhibits = parseExhibits(items);
 
     hide('exhibit-loading');
 
@@ -1503,23 +1499,6 @@ async function selectJob(job) {
   document.getElementById('dot-1').classList.add('done');
   document.getElementById('dot-2').classList.add('active');
   saveSession();
-}
-
-function nextExhibitLetter(existingLetters) {
-  const sorted = [...existingLetters].sort();
-  if (sorted.length === 0) return 'A';
-  const last  = sorted[sorted.length - 1];
-  const chars = last.split('');
-  let i = chars.length - 1;
-  while (i >= 0) {
-    if (chars[i] < 'Z') {
-      chars[i] = String.fromCharCode(chars[i].charCodeAt(0) + 1);
-      return chars.join('');
-    }
-    chars[i] = 'A';
-    i--;
-  }
-  return 'A' + chars.join('');
 }
 
 function showExhibitBanner() {
@@ -2630,43 +2609,10 @@ async function submitToJobTread() {
       document.getElementById('dot-3').classList.remove('active');
 
       try {
-        let items = [];
-        let page  = null;
-        do {
-          const params = { where: [['job', 'id'], '=', selectedJob.id], size: 100 };
-          if (page) params.page = page;
-          const data = await jtPost({
-            $: { grantKey },
-            organization: {
-              $: { id: orgId },
-              costItems: {
-                $: params,
-                nextPage: {},
-                nodes: {
-                  id: {}, name: {}, unitPrice: {},
-                  costGroup: { id: {}, name: {} }
-                }
-              }
-            }
-          });
-          items = items.concat(data?.organization?.costItems?.nodes || []);
-          page  = data?.organization?.costItems?.nextPage || null;
-        } while (page);
+        const items = await fetchJobScopeItems(selectedJob.id);
 
-        const notesItem = items.find(i => i.name === 'NOTES' && !i.costGroup);
-        if (notesItem) existingNotesId = notesItem.id;
-
-        const exhibitMap = {};
-        items.forEach(item => {
-          if (item.costGroup?.name?.startsWith('Exhibit ')) {
-            const letter = item.costGroup.name.replace('Exhibit ', '').trim();
-            if (!exhibitMap[letter]) {
-              exhibitMap[letter] = { id: item.costGroup.id, name: item.costGroup.name, letter, items: [] };
-            }
-            exhibitMap[letter].items.push(item);
-          }
-        });
-        existingExhibits = Object.values(exhibitMap).sort((a, b) => a.letter.localeCompare(b.letter));
+        existingNotesId  = findNotesItemId(items);
+        existingExhibits = parseExhibits(items);
 
         const newLetters = existingExhibits.map(e => e.letter);
         const newNext    = nextExhibitLetter(newLetters);
