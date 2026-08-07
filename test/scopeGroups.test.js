@@ -289,3 +289,47 @@ test('buildDocumentParams preserves showQuantity:false rather than dropping it a
   assert.strictEqual(params.showQuantity, false);
   assert.strictEqual(params.showChildCosts, false);
 });
+
+// ── Idaho tax ──────────────────────────────────────────────────────
+const { isIdahoAddress, documentTaxRate } = require('../lib/scopeGroups.js');
+
+test('recognises Idaho addresses across the messy real formats', () => {
+  [
+    "112 E Borah Ave, Coeur d'Alene, ID 83814, USA",
+    '1155 Morris Road, Princeton Idaho 83857',
+    '706 W 12th Ave, Post Falls ID 83854',
+    "6937 N Windy Pines St, Coeur d'Alene ID 83815-9171",
+    '7553 W Lund St, Rathdrum  ID 83858',
+    '2173 Tumbleweed Circle, Hayden Idaho 83835',
+    '816 S Bailey Ct, CDA ID 83814',
+    '2876 E Winter Pines Ct, CDA Id on 83815',
+    '7823 N Rude st, Dalton gardens Id 83825',
+    '1427 W Benjamin Ave, Coeur d Alene Id 83815',
+    'MOSCOW ID 83843'
+  ].forEach(addr => assert.strictEqual(isIdahoAddress(addr), true, addr));
+});
+
+test('does not mistake Washington addresses for Idaho', () => {
+  [
+    '403 E 8th Ave, Spokane, WA 99202, USA',
+    '12612 E Houk Rd, Spokane Valley, WA 99216, USA',
+    '123 Broadway, Seattle, WA 98122, USA',
+    '123 E Test St, Spokane WA 99202'
+  ].forEach(addr => assert.strictEqual(isIdahoAddress(addr), false, addr));
+});
+
+test('does not match street names that merely contain the letters id', () => {
+  // "Cambridge" contains "id" — a naive substring match flags this as Idaho.
+  assert.strictEqual(isIdahoAddress('1419 E Cambridge Ln, Spokane, WA 99203, USA'), false);
+});
+
+test('halves the tax rate on Idaho jobs only', () => {
+  assert.strictEqual(documentTaxRate(0.06, '608 N 16th St, Coeur d\'Alene ID 83814'), 0.03);
+  assert.strictEqual(documentTaxRate(0.091, '403 E 8th Ave, Spokane, WA 99202, USA'), 0.091);
+});
+
+test('documentTaxRate handles a missing rate or address', () => {
+  assert.strictEqual(documentTaxRate(null, 'MOSCOW ID 83843'), 0);
+  assert.strictEqual(documentTaxRate(0.089, null), 0.089);
+  assert.strictEqual(documentTaxRate(0.089, ''), 0.089);
+});

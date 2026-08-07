@@ -1143,6 +1143,9 @@ let currentMode         = 'exhibit'; // 'exhibit' | 'changeOrder'
 // True once the job has an approved customerOrder. Change orders amend a
 // signed contract, so the mode is not offered at all until one exists.
 let jobIsSigned         = false;
+// Set during document generation so the success toast can state that an Idaho
+// half-rate was applied, rather than changing the tax silently.
+let lastDocumentTaxNote = '';
 let currentChangeOrder  = null;
 let existingChangeOrders = [];
 let existingNotesId  = null;
@@ -1505,11 +1508,19 @@ async function generateDocument(mode, groupLabel, postedItems) {
   if (!template) throw new Error('Could not load the document template');
   if (!customer.toName) throw new Error('Job has no customer contact to address the document to');
 
+  // Idaho jobs are taxed on half the total, so the document carries half the
+  // location's rate — the override that used to be applied by hand.
+  const taxRate = documentTaxRate(customer.taxRate, customer.jobLocationAddress);
+  lastDocumentTaxNote = taxRate !== customer.taxRate
+    ? ` Idaho job — tax set to ${(taxRate * 100).toFixed(2)}% (half of ${(customer.taxRate * 100).toFixed(2)}%).`
+    : '';
+
   const params = buildDocumentParams(template, {
     jobId:     selectedJob.id,
     lineItems: documentLineItems(mode, groupLabel, postedItems, notes),
     ...customer,
-    ...identity
+    ...identity,
+    taxRate
   });
 
   const result = await jtPost({
@@ -2847,6 +2858,7 @@ async function submitToJobTread() {
     // separate concern — if it fails, say so plainly rather than letting a
     // successful post look like a failure and tempt a re-post.
     let documentError = null;
+    lastDocumentTaxNote = '';
     btn.innerHTML = '<div class="spinner"></div> Generating document…';
     try {
       await generateDocument(currentMode, groupLabel, postedItems);
@@ -2861,9 +2873,9 @@ async function submitToJobTread() {
       toast(`${groupLabel} posted, but the document was not created (${documentError}). Build it in JobTread.`, 'err');
     } else {
       toast(
-        isChangeOrder
+        (isChangeOrder
           ? `${groupLabel} posted — change order drafted in JobTread.`
-          : `${groupLabel} posted — proposal drafted in JobTread.`,
+          : `${groupLabel} posted — proposal drafted in JobTread.`) + lastDocumentTaxNote,
         'ok'
       );
     }
