@@ -178,6 +178,49 @@ Alina creates the Change Order document in JobTread, selects the
 `Change Order N` group, and sends it for signature — the same habit that already
 works for proposals.
 
+## Validated by manual test, 2026-08-07
+
+A full manual run on `TEST JOB` (`22PcFcUW9xHt`) confirmed the design:
+
+- **Flat structure works.** All 7 cost groups are top-level
+  (`parentCostGroup: null`): `Exhibit A`, `Change Order 1/2/3`, plus 3 document
+  copies.
+- **The budget is additive and correct.** Budget-only items (`document == null`)
+  sum to $6,000 — Exhibit A $3,000 plus three change orders at $1,000 each. No
+  double-count. This was the one open question the schema could not answer.
+- **Document copies occur for change orders too**, exactly as with proposals.
+- **Mode detection is vindicated.** The job has three approved documents and a
+  signed contract, yet its Pipeline Stage is still `Appointment Booked`.
+  Stage-based detection would have placed a job with three change orders into
+  exhibit mode.
+
+Two issues surfaced:
+
+- **Change Order 2's document was created from the Proposal template**
+  (`22PcFd6iHhap`, named "Proposal") rather than the Change Order template. The
+  customer would receive bid terms on a job already under contract. Since
+  document creation stays manual, this is a training/checklist matter, not a
+  code one — but it is the most likely human error in the flow.
+- **A pre-existing bug was confirmed live** (see below).
+
+## Pre-existing bug this work must fix
+
+The cost-item query (`index.html:1439`) filters only on job id, with no document
+filter, so it returns every document's copies alongside the budget items. Those
+copies are then pushed into the same exhibit bucket (`index.html:1470`) and
+loaded as scope lines (`index.html:1540`).
+
+Effect: opening a job shows each scope line once per document that exists.
+`TEST JOB` displays 8 lines for Exhibit A's 4; Theresa Wilson would show 24 for
+12. It worsens with each proposal issued.
+
+Secondarily, `existingNotesId` (`index.html:1460`) takes the first matching
+`NOTES` item, which may belong to a document rather than the job — so appended
+notes can land on a document's copy.
+
+The `document == null` filter specified in section 2 fixes both. It is not a new
+requirement introduced by change orders; it repairs shipped behavior.
+
 ## Risks
 
 - **Adoption, not accuracy, is the main risk.** Since change orders live in Word
@@ -185,14 +228,15 @@ works for proposals.
   automation. If the in-app flow is not obviously easier than opening Word,
   Sergey keeps using Word and JobTread stays incomplete. This is the reason the
   design adds no new screens and changes only three strings.
-- **Never run end-to-end in JobTread.** No real change order has been issued
-  from this account, so the budget behavior of an approved one is reasoned from
-  the schema, not observed. Running a single manual change order in JobTread
-  before building would validate the whole design cheaply.
+- **Wrong template on the document.** Observed once in testing. Alina picking
+  Proposal instead of Change Order sends bid terms to a customer under contract.
+  Mitigation is a checklist, since the app does not create documents.
+- ~~**Never run end-to-end in JobTread.**~~ Resolved by the 2026-08-07 manual
+  test above.
 - **`PROJECT_BRIEF.md` says not to add change-order UI until Sergey has been
   watched doing one.** That guidance assumed an existing JobTread flow to
   observe. There is none — the process is a Word document, so there is nothing
-  to watch. The substitute is the manual JobTread run above.
+  to watch. The manual run above serves as the substitute.
 
 ## Out of scope
 
