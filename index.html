@@ -1442,7 +1442,7 @@ async function fetchJobCustomer(jobId) {
     job: {
       $: { id: jobId },
       location: {
-        id: {}, address: {}, taxRate: {},
+        id: {}, name: {}, address: {}, taxRate: {},
         account: { id: {}, name: {}, contacts: { nodes: { id: {}, name: {} } } }
       }
     }
@@ -1452,7 +1452,9 @@ async function fetchJobCustomer(jobId) {
     taxRate:             loc.taxRate || 0,
     toAddress:           loc.address || null,
     toOrganizationName:  loc.account?.name || null,
-    toName:              loc.account?.contacts?.nodes?.[0]?.name || loc.account?.name || null
+    toName:              loc.account?.contacts?.nodes?.[0]?.name || loc.account?.name || null,
+    jobLocationName:     loc.name || null,
+    jobLocationAddress:  loc.address || null
   };
 }
 
@@ -1471,7 +1473,7 @@ async function fetchGrantIdentity() {
 
 // Creates the customer-facing document as a DRAFT — no issueDate is sent, so
 // nothing goes to the customer until Alina reviews and sends it in JobTread.
-async function generateDocument(mode, costGroupId) {
+async function generateDocument(mode, groupLabel, postedItems) {
   const templateId = documentTemplateIdFor(mode);
   const [template, customer, identity] = await Promise.all([
     fetchDocumentTemplate(templateId),
@@ -1483,7 +1485,7 @@ async function generateDocument(mode, costGroupId) {
 
   const params = buildDocumentParams(template, {
     jobId:     selectedJob.id,
-    lineItems: documentLineItems(mode, costGroupId, existingNotesId),
+    lineItems: documentLineItems(mode, groupLabel, postedItems, existingNotesId),
     ...customer,
     ...identity
   });
@@ -2691,6 +2693,7 @@ async function submitToJobTread() {
     const costGroupId = groupResult?.createCostGroup?.createdCostGroup?.id;
     if (!costGroupId) throw new Error('Could not create cost group for ' + groupLabel);
 
+    const postedItems = [];
     for (let i = 0; i < lines.length; i++) {
       const isLast  = i === lines.length - 1;
       const price   = (isLast && totalPrice > 0) ? totalPrice : 0;
@@ -2705,12 +2708,20 @@ async function submitToJobTread() {
       };
       if (price)   params.unitPrice = price;
       if (taxable) params.isTaxable = true;
-      await jtPost({
+      const itemResult = await jtPost({
         $: { grantKey },
         createCostItem: {
           $: params,
           createdCostItem: { id: {}, name: {} }
         }
+      });
+      // Kept so the document can rebuild these lines and link each one back to
+      // the budget item it came from.
+      postedItems.push({
+        id:        itemResult?.createCostItem?.createdCostItem?.id || null,
+        name:      lines[i].text,
+        unitPrice: price || null,
+        isTaxable: taxable
       });
     }
 
@@ -2771,7 +2782,7 @@ async function submitToJobTread() {
     let documentError = null;
     btn.innerHTML = '<div class="spinner"></div> Generating document…';
     try {
-      await generateDocument(currentMode, costGroupId);
+      await generateDocument(currentMode, groupLabel, postedItems);
     } catch (docErr) {
       console.error('Document generation failed:', docErr);
       documentError = docErr.message;

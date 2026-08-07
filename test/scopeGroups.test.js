@@ -164,22 +164,47 @@ test('proposal template is the showQuantity:false one, pinned by id not name', (
   assert.notStrictEqual(PROPOSAL_TEMPLATE_ID, '22PVEkn2ERDb');
 });
 
-test('an exhibit document includes its group plus NOTES', () => {
-  const items = documentLineItems('exhibit', 'grp-B', 'notes-1');
-  assert.deepStrictEqual(items, [
-    { existingCostGroup: { id: 'grp-B' } },
-    { existingCostItem:  { id: 'notes-1' } }
+test('an exhibit document rebuilds its group and appends NOTES', () => {
+  const posted = [
+    { id: 'ci-1', name: 'Demo Bathroom' },
+    { id: 'ci-2', name: 'Install Vanity', unitPrice: 3000, isTaxable: true }
+  ];
+  const items = documentLineItems('exhibit', 'Exhibit B', posted, 'notes-1');
+
+  assert.strictEqual(items.length, 2);
+  assert.strictEqual(items[0]._type, 'costGroup');
+  assert.strictEqual(items[0].name, 'Exhibit B');
+  assert.deepStrictEqual(items[0].lineItems, [
+    { _type: 'costItem', name: 'Demo Bathroom', showQuantity: false, jobCostItemId: 'ci-1' },
+    { _type: 'costItem', name: 'Install Vanity', showQuantity: false,
+      jobCostItemId: 'ci-2', unitPrice: 3000, isTaxable: true }
   ]);
+  assert.deepStrictEqual(items[1], {
+    _type: 'costItem', name: 'NOTES',
+    showQuantity: false, showDescription: true, jobCostItemId: 'notes-1'
+  });
 });
 
-test('a change order includes only its own group, never NOTES', () => {
-  const items = documentLineItems('changeOrder', 'grp-CO1', 'notes-1');
-  assert.deepStrictEqual(items, [{ existingCostGroup: { id: 'grp-CO1' } }]);
+test('a change order rebuilds only its own group, never NOTES', () => {
+  const items = documentLineItems('changeOrder', 'Change Order 2',
+    [{ id: 'ci-9', name: 'Relocate Valve', unitPrice: 500, isTaxable: true }], 'notes-1');
+  assert.strictEqual(items.length, 1);
+  assert.strictEqual(items[0].name, 'Change Order 2');
 });
 
 test('an exhibit document omits NOTES when the job has none', () => {
-  assert.deepStrictEqual(documentLineItems('exhibit', 'grp-A', null),
-    [{ existingCostGroup: { id: 'grp-A' } }]);
+  const items = documentLineItems('exhibit', 'Exhibit A', [{ id: 'c', name: 'x' }], null);
+  assert.strictEqual(items.length, 1);
+});
+
+test('document line items never reference budget groups by id', () => {
+  // JobTread rejects an existing-group id: documents own their own copies,
+  // linked back to the budget via jobCostItemId.
+  const items = documentLineItems('exhibit', 'Exhibit A', [{ id: 'ci-1', name: 'x' }], 'n');
+  const json = JSON.stringify(items);
+  assert.strictEqual(json.includes('existingCostGroup'), false);
+  assert.strictEqual(json.includes('existingCostItem'), false);
+  assert.strictEqual(items[0].lineItems[0].jobCostItemId, 'ci-1');
 });
 
 test('buildDocumentParams copies template fields and fills job context', () => {
@@ -191,7 +216,9 @@ test('buildDocumentParams copies template fields and fills job context', () => {
   const params = buildDocumentParams(template, {
     jobId: 'job-1', lineItems: [{ existingCostGroup: { id: 'g1' } }],
     taxRate: 0.08375, toName: 'CaleJ Rich', toOrganizationName: 'Caleb John Richards',
-    toAddress: '123 Test St', fallbackFromName: 'Sergey Stefoglo',
+    toAddress: '123 Test St', jobLocationName: '123 Test St',
+    jobLocationAddress: '123 Test St, Waconia, MN 55387, USA',
+    fallbackFromName: 'Sergey Stefoglo',
     fallbackFromOrganizationName: 'Elite Construction + Remodeling'
   });
 
@@ -206,6 +233,8 @@ test('buildDocumentParams copies template fields and fills job context', () => {
   // Template leaves these null, so the grant identity fills in.
   assert.strictEqual(params.fromName, 'Sergey Stefoglo');
   assert.strictEqual(params.fromOrganizationName, 'Elite Construction + Remodeling');
+  // JobTread rejects the document without a job location.
+  assert.strictEqual(params.jobLocationName, '123 Test St');
 });
 
 test('buildDocumentParams omits issueDate so the document stays a draft', () => {
