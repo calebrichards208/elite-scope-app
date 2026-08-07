@@ -1411,6 +1411,92 @@ async function fetchJobDocuments(jobId) {
   return data?.organization?.documents?.nodes || [];
 }
 
+// Reads the template fresh on every generate, so edits made to it in JobTread
+// are picked up rather than drifting out of sync with the app.
+async function fetchDocumentTemplate(templateId) {
+  const data = await jtPost({
+    $: { grantKey },
+    documentTemplate: {
+      $: { id: templateId },
+      id: {}, name: {}, type: {},
+      description: {}, footer: {}, signatureDisclaimer: {}, emailMessage: {},
+      requireSignature: {}, includeInBudget: {}, showQuantity: {},
+      showChildCosts: {}, groupsStartCollapsed: {}, showCostItemFiles: {},
+      showFinancing: {}, showProfit: {}, showProgress: {},
+      showScheduledDocuments: {}, allowPartialPayments: {},
+      showLinesAtDepth: {}, dueDays: {},
+      coverPageTitle: {}, coverPageSubtitle: {}, coverPageTemplate: {},
+      taxName: {}, nonRecoverableTaxName: {},
+      fromName: {}, fromOrganizationName: {}, fromEmailAddress: {},
+      fromAddress: {}, fromPhoneNumber: {}
+    }
+  });
+  return data?.documentTemplate || null;
+}
+
+// Who the document is addressed to, and the tax rate, both come from the job's
+// location rather than the template.
+async function fetchJobCustomer(jobId) {
+  const data = await jtPost({
+    $: { grantKey },
+    job: {
+      $: { id: jobId },
+      location: {
+        id: {}, address: {}, taxRate: {},
+        account: { id: {}, name: {}, contacts: { nodes: { id: {}, name: {} } } }
+      }
+    }
+  });
+  const loc = data?.job?.location || {};
+  return {
+    taxRate:             loc.taxRate || 0,
+    toAddress:           loc.address || null,
+    toOrganizationName:  loc.account?.name || null,
+    toName:              loc.account?.contacts?.nodes?.[0]?.name || loc.account?.name || null
+  };
+}
+
+// createDocument requires fromName, but the templates leave it null — the
+// grant's own user and organization fill it in.
+async function fetchGrantIdentity() {
+  const data = await jtPost({
+    $: { grantKey },
+    currentGrant: { user: { name: {} }, organization: { name: {} } }
+  });
+  return {
+    fallbackFromName:             data?.currentGrant?.user?.name || 'Elite Construction + Remodeling',
+    fallbackFromOrganizationName: data?.currentGrant?.organization?.name || null
+  };
+}
+
+// Creates the customer-facing document as a DRAFT — no issueDate is sent, so
+// nothing goes to the customer until Alina reviews and sends it in JobTread.
+async function generateDocument(mode, costGroupId) {
+  const templateId = documentTemplateIdFor(mode);
+  const [template, customer, identity] = await Promise.all([
+    fetchDocumentTemplate(templateId),
+    fetchJobCustomer(selectedJob.id),
+    fetchGrantIdentity()
+  ]);
+  if (!template) throw new Error('Could not load the document template');
+  if (!customer.toName) throw new Error('Job has no customer contact to address the document to');
+
+  const params = buildDocumentParams(template, {
+    jobId:     selectedJob.id,
+    lineItems: documentLineItems(mode, costGroupId, existingNotesId),
+    ...customer,
+    ...identity
+  });
+
+  const result = await jtPost({
+    $: { grantKey },
+    createDocument: { $: params, createdDocument: { id: {}, name: {}, status: {} } }
+  });
+  const created = result?.createDocument?.createdDocument;
+  if (!created?.id) throw new Error('Document was not created');
+  return created;
+}
+
 function getJobStage(job) {
   const cfv = (job.customFieldValues?.nodes || []).find(
     n => n.customField?.id === PIPELINE_STAGE_FIELD_ID
@@ -2679,14 +2765,30 @@ async function submitToJobTread() {
       });
     }
 
+    // The lines are safely in JobTread by this point. Document generation is a
+    // separate concern — if it fails, say so plainly rather than letting a
+    // successful post look like a failure and tempt a re-post.
+    let documentError = null;
+    btn.innerHTML = '<div class="spinner"></div> Generating document…';
+    try {
+      await generateDocument(currentMode, costGroupId);
+    } catch (docErr) {
+      console.error('Document generation failed:', docErr);
+      documentError = docErr.message;
+    }
+
     btn.classList.add('success-state');
     btn.innerHTML = `✓ ${groupLabel} posted!`;
-    toast(
-      isChangeOrder
-        ? `${groupLabel} posted! Open JobTread to send the change order.`
-        : `${groupLabel} posted! Open JobTread to generate the proposal.`,
-      'ok'
-    );
+    if (documentError) {
+      toast(`${groupLabel} posted, but the document was not created (${documentError}). Build it in JobTread.`, 'err');
+    } else {
+      toast(
+        isChangeOrder
+          ? `${groupLabel} posted — change order drafted in JobTread.`
+          : `${groupLabel} posted — proposal drafted in JobTread.`,
+        'ok'
+      );
+    }
 
     setTimeout(async () => {
       lines = [];

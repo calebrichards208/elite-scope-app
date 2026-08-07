@@ -142,3 +142,94 @@ test('detectMode ignores approved documents of other types', () => {
   const docs = [{ type: 'customerInvoice', status: 'approved' }];
   assert.strictEqual(detectMode(docs), 'exhibit');
 });
+
+// ── Document generation ────────────────────────────────────────────
+const {
+  PROPOSAL_TEMPLATE_ID,
+  CHANGE_ORDER_TEMPLATE_ID,
+  documentTemplateIdFor,
+  documentLineItems,
+  buildDocumentParams
+} = require('../lib/scopeGroups.js');
+
+test('documentTemplateIdFor picks the Change Order template only in change-order mode', () => {
+  assert.strictEqual(documentTemplateIdFor('changeOrder'), CHANGE_ORDER_TEMPLATE_ID);
+  assert.strictEqual(documentTemplateIdFor('exhibit'), PROPOSAL_TEMPLATE_ID);
+});
+
+test('proposal template is the showQuantity:false one, pinned by id not name', () => {
+  // Two templates are named "Proposal"; "Default BCI" (22PVEkn2ERDb) shows
+  // quantities, which is wrong for lump-sum bids.
+  assert.strictEqual(PROPOSAL_TEMPLATE_ID, '22PEaNuVctbe');
+  assert.notStrictEqual(PROPOSAL_TEMPLATE_ID, '22PVEkn2ERDb');
+});
+
+test('an exhibit document includes its group plus NOTES', () => {
+  const items = documentLineItems('exhibit', 'grp-B', 'notes-1');
+  assert.deepStrictEqual(items, [
+    { existingCostGroup: { id: 'grp-B' } },
+    { existingCostItem:  { id: 'notes-1' } }
+  ]);
+});
+
+test('a change order includes only its own group, never NOTES', () => {
+  const items = documentLineItems('changeOrder', 'grp-CO1', 'notes-1');
+  assert.deepStrictEqual(items, [{ existingCostGroup: { id: 'grp-CO1' } }]);
+});
+
+test('an exhibit document omits NOTES when the job has none', () => {
+  assert.deepStrictEqual(documentLineItems('exhibit', 'grp-A', null),
+    [{ existingCostGroup: { id: 'grp-A' } }]);
+});
+
+test('buildDocumentParams copies template fields and fills job context', () => {
+  const template = {
+    name: 'Change Order', type: 'customerOrder', footer: 'Amends the contract.',
+    requireSignature: true, showQuantity: false, includeInBudget: true,
+    dueDays: 15, fromName: null, fromOrganizationName: null, taxName: null
+  };
+  const params = buildDocumentParams(template, {
+    jobId: 'job-1', lineItems: [{ existingCostGroup: { id: 'g1' } }],
+    taxRate: 0.08375, toName: 'CaleJ Rich', toOrganizationName: 'Caleb John Richards',
+    toAddress: '123 Test St', fallbackFromName: 'Sergey Stefoglo',
+    fallbackFromOrganizationName: 'Elite Construction + Remodeling'
+  });
+
+  assert.strictEqual(params.jobId, 'job-1');
+  assert.strictEqual(params.name, 'Change Order');
+  assert.strictEqual(params.type, 'customerOrder');
+  assert.strictEqual(params.footer, 'Amends the contract.');
+  assert.strictEqual(params.requireSignature, true);
+  assert.strictEqual(params.showQuantity, false);
+  assert.strictEqual(params.taxRate, 0.08375);
+  assert.strictEqual(params.toName, 'CaleJ Rich');
+  // Template leaves these null, so the grant identity fills in.
+  assert.strictEqual(params.fromName, 'Sergey Stefoglo');
+  assert.strictEqual(params.fromOrganizationName, 'Elite Construction + Remodeling');
+});
+
+test('buildDocumentParams omits issueDate so the document stays a draft', () => {
+  const params = buildDocumentParams(
+    { name: 'Proposal', type: 'customerOrder' },
+    { jobId: 'j', lineItems: [], taxRate: 0, toName: 'X', fallbackFromName: 'Y' }
+  );
+  assert.strictEqual('issueDate' in params, false);
+});
+
+test('buildDocumentParams never emits null-valued template fields', () => {
+  const params = buildDocumentParams(
+    { name: 'Proposal', type: 'customerOrder', footer: null, coverPageTitle: null },
+    { jobId: 'j', lineItems: [], taxRate: 0, toName: 'X', fallbackFromName: 'Y' }
+  );
+  assert.strictEqual('footer' in params, false);
+  assert.strictEqual('coverPageTitle' in params, false);
+});
+
+test('buildDocumentParams preserves showQuantity:false rather than dropping it as falsy', () => {
+  const params = buildDocumentParams(
+    { name: 'Proposal', type: 'customerOrder', showQuantity: false, showChildCosts: false },
+    { jobId: 'j', lineItems: [], taxRate: 0, toName: 'X', fallbackFromName: 'Y' }
+  );
+  assert.strictEqual(params.showQuantity, false);
+  assert.strictEqual(params.showChildCosts, false);
+});
