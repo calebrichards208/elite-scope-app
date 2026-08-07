@@ -1619,21 +1619,15 @@ async function selectJob(job) {
     hide('exhibit-loading');
     currentExhibit = 'A';
     currentMode = 'exhibit';
-    const draftFallback = loadDraft(job.id);
-    if (draftFallback && (draftFallback.mode === 'exhibit' || draftFallback.mode === 'changeOrder')) currentMode = draftFallback.mode;
     console.warn('Could not fetch exhibits:', e.message);
     showScopeBanner();
     updateSubmitLabel();
   }
 
-  // Restore any in-progress draft for this job — overrides exhibit items
-  // loaded above so switching back to a job picks up exactly where you left off.
-  const draft = loadDraft(job.id);
-  if (draft && draft.lines.length > 0) {
-    lines = draft.lines.map(text => ({ id: nextLineId++, text }));
-    document.getElementById('additional-notes').value = draft.notes || '';
-    renderLines();
-  }
+  // Restore this mode's in-progress draft, so returning to a job picks up
+  // exactly where you left off. With nothing saved the baseline stands: a
+  // blank list for a change order, the prior exhibit's lines for an exhibit.
+  applyModeDraft(job.id);
 
   document.getElementById('badge-1').classList.add('done');
   document.getElementById('badge-1').textContent = '✓';
@@ -1690,8 +1684,13 @@ function setMode(mode) {
   const btn = document.getElementById('submit-btn');
   if (btn && btn.disabled) return;   // never switch mid-post
   if (mode === currentMode) return;
+
+  // Park the current mode's work before leaving it, then pick up whatever was
+  // left in the mode being switched to, so tabbing back and forth loses nothing.
+  if (selectedJob) saveDraft(selectedJob.id, currentMode);
   currentMode = mode;
   showScopeBanner();
+  if (selectedJob) applyModeDraft(selectedJob.id);
   updateSubmitLabel();
 }
 
@@ -1882,28 +1881,42 @@ function saveSession() {
 
 // Per-job draft storage — keeps each job's in-progress lines and notes
 // independently so switching between jobs doesn't lose either one.
-const draftKey = id => `ec_scope_draft_${id}`;
+// Drafts are per job AND per mode. A shared draft meant a fresh change order
+// opened preloaded with the exhibit's scope lines, and switching tabs threw
+// away whatever you had typed in the other mode.
+const draftKey = (id, mode) => `ec_scope_draft_${id}_${mode || 'exhibit'}`;
 
-function saveDraft(jobId) {
+function saveDraft(jobId, mode) {
   if (!jobId) return;
-  localStorage.setItem(draftKey(jobId), JSON.stringify({
+  localStorage.setItem(draftKey(jobId, mode || currentMode), JSON.stringify({
     lines: lines.map(l => l.text),
-    notes: document.getElementById('additional-notes').value,
-    mode: currentMode
+    notes: document.getElementById('additional-notes').value
   }));
 }
 
-function loadDraft(jobId) {
+function loadDraft(jobId, mode) {
   try {
-    const raw = localStorage.getItem(draftKey(jobId));
+    const raw = localStorage.getItem(draftKey(jobId, mode || currentMode));
     if (!raw) return null;
     const d = JSON.parse(raw);
     return Array.isArray(d.lines) ? d : null;
   } catch { return null; }
 }
 
-function clearDraft(jobId) {
-  if (jobId) localStorage.removeItem(draftKey(jobId));
+// Applies this mode's saved draft on top of whatever showScopeBanner() set up.
+// Returns false when there is nothing saved, leaving the baseline intact — a
+// blank list for a first change order, the prior exhibit for an exhibit.
+function applyModeDraft(jobId) {
+  const draft = loadDraft(jobId, currentMode);
+  if (!draft || draft.lines.length === 0) return false;
+  lines = draft.lines.map(text => ({ id: nextLineId++, text }));
+  document.getElementById('additional-notes').value = draft.notes || '';
+  renderLines();
+  return true;
+}
+
+function clearDraft(jobId, mode) {
+  if (jobId) localStorage.removeItem(draftKey(jobId, mode || currentMode));
 }
 
 function renderLines() {
