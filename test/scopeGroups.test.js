@@ -4,7 +4,11 @@ const {
   budgetItemsOnly,
   findNotesItemId,
   parseExhibits,
-  nextExhibitLetter
+  nextExhibitLetter,
+  parseChangeOrders,
+  nextChangeOrderNumber,
+  changeOrderGroupName,
+  detectMode
 } = require('../lib/scopeGroups.js');
 
 const budgetItem = (name, groupName, groupId, extra = {}) => ({
@@ -77,4 +81,64 @@ test('nextExhibitLetter starts at A and increments', () => {
 
 test('nextExhibitLetter rolls over past Z', () => {
   assert.strictEqual(nextExhibitLetter(['Z']), 'AA');
+});
+
+test('parseChangeOrders ignores document copies', () => {
+  const items = [
+    budgetItem('item 1', 'Change Order 1', 'g1'),
+    docItem('item 1', 'Change Order 1', 'g2', 'doc1')
+  ];
+  const orders = parseChangeOrders(items);
+  assert.strictEqual(orders.length, 1);
+  assert.strictEqual(orders[0].items.length, 1);
+  assert.strictEqual(orders[0].id, 'g1');
+});
+
+test('parseChangeOrders sorts numerically, not alphabetically', () => {
+  const items = [
+    budgetItem('a', 'Change Order 10', 'g10'),
+    budgetItem('b', 'Change Order 2', 'g2'),
+    budgetItem('c', 'Change Order 1', 'g1')
+  ];
+  assert.deepStrictEqual(parseChangeOrders(items).map(o => o.number), [1, 2, 10]);
+});
+
+test('parseChangeOrders ignores exhibits and near-miss names', () => {
+  const items = [
+    budgetItem('a', 'Exhibit A', 'gA'),
+    budgetItem('b', 'Change Order #3', 'gHash'),
+    budgetItem('c', 'Change Orders', 'gParent'),
+    budgetItem('d', 'Change Order 1', 'g1')
+  ];
+  assert.deepStrictEqual(parseChangeOrders(items).map(o => o.number), [1]);
+});
+
+test('nextChangeOrderNumber starts at 1 and increments from the max', () => {
+  assert.strictEqual(nextChangeOrderNumber([]), 1);
+  assert.strictEqual(nextChangeOrderNumber([1]), 2);
+  assert.strictEqual(nextChangeOrderNumber([1, 2, 3]), 4);
+  assert.strictEqual(nextChangeOrderNumber([3, 1]), 4);
+});
+
+test('changeOrderGroupName has no hash and a single space', () => {
+  assert.strictEqual(changeOrderGroupName(1), 'Change Order 1');
+  assert.strictEqual(changeOrderGroupName(12), 'Change Order 12');
+});
+
+test('detectMode returns changeOrder when a customerOrder is approved', () => {
+  const docs = [{ id: 'd1', type: 'customerOrder', status: 'approved' }];
+  assert.strictEqual(detectMode(docs), 'changeOrder');
+});
+
+test('detectMode returns exhibit for pending, denied, or draft only', () => {
+  assert.strictEqual(detectMode([{ type: 'customerOrder', status: 'pending' }]), 'exhibit');
+  assert.strictEqual(detectMode([{ type: 'customerOrder', status: 'denied' }]), 'exhibit');
+  assert.strictEqual(detectMode([{ type: 'customerOrder', status: 'draft' }]), 'exhibit');
+  assert.strictEqual(detectMode([]), 'exhibit');
+  assert.strictEqual(detectMode(null), 'exhibit');
+});
+
+test('detectMode ignores approved documents of other types', () => {
+  const docs = [{ type: 'customerInvoice', status: 'approved' }];
+  assert.strictEqual(detectMode(docs), 'exhibit');
 });
