@@ -15,6 +15,16 @@ Per Alina, the distinction is signing:
 - **Change Order** — post-signing. Additional scope on a job already underway,
   issued as its own simple document.
 
+**This is a new process, not an existing one being automated.** Change orders
+are written by hand in Word documents today and never reach JobTread at all.
+Two consequences shape the design:
+
+- There is no current habit to match or migrate. The flow only has to be
+  obvious enough inside the app that Sergey stops reaching for Word.
+- Job contract values in JobTread are currently understated wherever a change
+  order was issued, because that scope exists only in a Word file. Adopting
+  this closes a real data gap, not just a workflow one.
+
 ## Facts established against the live JobTread account
 
 These were verified via the Pave API, not assumed. They constrain the design.
@@ -109,6 +119,11 @@ On job select, check whether any `customerOrder` document on the job has
 - approved exists → **change-order mode**
 - otherwise → **exhibit mode**
 
+`approved` is set when a customer signs a proposal. `pending` means an unsigned
+prospect who went quiet. So document status maps cleanly onto the pre/post
+signing distinction and is a reliable signal — this is not an inference from
+status hygiene, it is what the statuses mean at Elite.
+
 This uses the signing event itself, which is Alina's actual definition. It was
 chosen over reading the Pipeline Stage field specifically because stage-based
 logic depends on a human moving a card — the failure mode that broke the
@@ -165,14 +180,19 @@ works for proposals.
 
 ## Risks
 
-- **Never run end-to-end.** No real change order has been issued from this
-  account. Budget behavior of an approved change order is reasoned from the
-  schema, not observed. `PROJECT_BRIEF.md` explicitly says not to add
-  change-order UI until Sergey has been watched doing one. Consider running one
-  manually in JobTread before building.
-- **Mode detection depends on document status hygiene.** If proposals are never
-  marked approved, no job ever enters change-order mode. The override covers
-  this, but it is worth checking that approved status is actually being set.
+- **Adoption, not accuracy, is the main risk.** Since change orders live in Word
+  today, this design competes with a habit rather than replacing a broken
+  automation. If the in-app flow is not obviously easier than opening Word,
+  Sergey keeps using Word and JobTread stays incomplete. This is the reason the
+  design adds no new screens and changes only three strings.
+- **Never run end-to-end in JobTread.** No real change order has been issued
+  from this account, so the budget behavior of an approved one is reasoned from
+  the schema, not observed. Running a single manual change order in JobTread
+  before building would validate the whole design cheaply.
+- **`PROJECT_BRIEF.md` says not to add change-order UI until Sergey has been
+  watched doing one.** That guidance assumed an existing JobTread flow to
+  observe. There is none — the process is a Word document, so there is nothing
+  to watch. The substitute is the manual JobTread run above.
 
 ## Out of scope
 
