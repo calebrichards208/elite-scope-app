@@ -333,3 +333,54 @@ test('documentTaxRate handles a missing rate or address', () => {
   assert.strictEqual(documentTaxRate(0.089, null), 0.089);
   assert.strictEqual(documentTaxRate(0.089, ''), 0.089);
 });
+
+// ── Job naming ─────────────────────────────────────────────────────
+const {
+  JOB_NAME_MAX_LENGTH, needsProjectName, appendProjectName
+} = require('../lib/scopeGroups.js');
+
+test('a bare customer name needs a project word', () => {
+  ['Doreen Smith', 'Mike Mires', 'Mistie Varner', 'Robert Schneider', 'Theresa Wilson']
+    .forEach(n => assert.strictEqual(needsProjectName(n), true, n));
+});
+
+test('names that already describe the project are left alone', () => {
+  [
+    'Karen Brewer Bathroom', 'Bjork Deck', 'Theresa Wilson-Back deck',
+    'Robert McPherson Laundry Room', 'Buchmann Wet Area Remodel',
+    'Noreen Pederson Tub to Shower', 'Mary Christensen Bath/Closet'
+  ].forEach(n => assert.strictEqual(needsProjectName(n), false, n));
+});
+
+test('appendProjectName adds the descriptor', () => {
+  assert.strictEqual(appendProjectName('Doreen Smith', 'Bathroom'), 'Doreen Smith Bathroom');
+});
+
+test('appendProjectName falls back to the first descriptor word when tight', () => {
+  // 'Christy Craver Jr Bathroom Remodel' is 34 — too long. 'Christy Craver Jr
+  // Bathroom' is 26, so the first word survives rather than truncating.
+  const result = appendProjectName('Christy Craver Jr', 'Bathroom Remodel');
+  assert.strictEqual(result, 'Christy Craver Jr Bathroom');
+  assert.ok(result.length <= JOB_NAME_MAX_LENGTH);
+});
+
+test('appendProjectName keeps every result within the cap', () => {
+  [['Doreen Smith', 'Bathroom'], ['Christy Craver Jr', 'Bathroom Remodel'],
+   ['Bartholomew Fitzgerald-Smythe', 'Bathroom'], ['Karen Brewer', 'Wet Area Remodel']]
+    .forEach(([n, d]) => {
+      const out = appendProjectName(n, d);
+      assert.ok(out.length <= JOB_NAME_MAX_LENGTH, `${out} is ${out.length} chars`);
+    });
+});
+
+test('appendProjectName never truncates the customer name', () => {
+  const longName = 'Bartholomew Fitzgerald-Smythe';  // 29 chars, no room for more
+  assert.strictEqual(appendProjectName(longName, 'Bathroom'), longName);
+});
+
+test('appendProjectName tolerates junk input', () => {
+  assert.strictEqual(appendProjectName('Doreen Smith', ''), 'Doreen Smith');
+  assert.strictEqual(appendProjectName('Doreen Smith', '   '), 'Doreen Smith');
+  assert.strictEqual(appendProjectName('Doreen Smith', 'Bath   Remodel'), 'Doreen Smith Bath Remodel');
+  assert.strictEqual(appendProjectName('', 'Bathroom'), '');
+});

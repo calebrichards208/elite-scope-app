@@ -1469,6 +1469,64 @@ async function fetchJobCustomer(jobId) {
   };
 }
 
+// Jobs arrive from GoHighLevel named after the opportunity — just the
+// customer's first and last name. Renaming them by hand in JobTread was a
+// five-click detour, so the app derives the project from the scope Sergey just
+// dictated and renames the job itself. Reads the scope rather than asking
+// anyone to pick a category, which is what made a dropdown unworkable: plenty
+// of jobs are a mix.
+async function suggestProjectName(scopeLines) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type':            'application/json',
+      'x-api-key':               anthropicKey,
+      'anthropic-version':       '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 40,
+      messages: [{
+        role: 'user',
+        content:
+          'These are the scope-of-work lines for a residential construction job:\n\n' +
+          scopeLines.map(l => '- ' + l).join('\n') +
+          '\n\nReply with ONLY the project type, 1-2 words, title case, no punctuation ' +
+          'or explanation. It gets appended to a customer name, so keep it short — ' +
+          '"Bathroom", "Shower", "Deck", "Kitchen", "Basement", "Laundry Room". ' +
+          'If the work spans several areas, use the dominant one, or "Remodel" if ' +
+          'there is no clear winner.'
+      }]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  const text = (data.content || []).find(b => b.type === 'text')?.text || '';
+  return text.trim().split('\n')[0].replace(/[^\w\s+/-]/g, '').trim();
+}
+
+// Renames the job in place. Returns the new name, or null when nothing changed.
+async function renameJobFromScope(scopeLines) {
+  if (!selectedJob || !anthropicKey) return null;
+  if (!needsProjectName(selectedJob.name)) return null;
+
+  const descriptor = await suggestProjectName(scopeLines);
+  const newName    = appendProjectName(selectedJob.name, descriptor);
+  if (!newName || newName === selectedJob.name) return null;
+
+  await jtPost({
+    $: { grantKey },
+    updateJob: { $: { id: selectedJob.id, name: newName }, job: { $: { id: selectedJob.id }, id: {} } }
+  });
+
+  selectedJob.name = newName;
+  const listed = allJobs.find(j => j.id === selectedJob.id);
+  if (listed) listed.name = newName;
+  document.getElementById('sel-job-name').textContent = newName;
+  return newName;
+}
+
 // The document owns a fresh copy of NOTES, so the boilerplate text has to be
 // read off the budget item and carried over or it renders blank.
 async function fetchNotesItem(notesItemId) {
@@ -2864,6 +2922,16 @@ async function submitToJobTread() {
     // The lines are safely in JobTread by this point. Document generation is a
     // separate concern — if it fails, say so plainly rather than letting a
     // successful post look like a failure and tempt a re-post.
+    // Rename before the document is generated so JobTread reads consistently.
+    // A failure here must not derail a successful post — the name is a filing
+    // convenience, not part of the customer's paperwork.
+    let renamedTo = null;
+    try {
+      renamedTo = await renameJobFromScope(lines.map(l => l.text));
+    } catch (nameErr) {
+      console.warn('Could not rename job:', nameErr.message);
+    }
+
     let documentError = null;
     lastDocumentTaxNote = '';
     btn.innerHTML = '<div class="spinner"></div> Generating document…';
@@ -2882,7 +2950,9 @@ async function submitToJobTread() {
       toast(
         (isChangeOrder
           ? `${groupLabel} posted — change order drafted in JobTread.`
-          : `${groupLabel} posted — proposal drafted in JobTread.`) + lastDocumentTaxNote,
+          : `${groupLabel} posted — proposal drafted in JobTread.`)
+        + (renamedTo ? ` Job renamed to "${renamedTo}".` : '')
+        + lastDocumentTaxNote,
         'ok'
       );
     }
