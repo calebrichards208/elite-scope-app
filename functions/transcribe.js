@@ -16,6 +16,8 @@ const TRANSCRIPTION_VOCAB_HINT =
   'Schluter, Hardie, Posi-Temp, LVP, LVT, OSB, MDF, PVC, PEX, GFCI, TP holder. ' +
   'Ordinary terms stay lowercase: green board, joists, sistering, rim joist, headers, blocking, ' +
   'niche, vanity, shower valve, shower pan, subfloor, baseboard. ' +
+  'Room names stay lowercase too: bathroom, master bathroom, kitchen, bedroom, master bedroom, ' +
+  'laundry room, basement, garage, hallway, closet. Example: install new vanity in master bathroom. ' +
   'Measurements are written in shorthand, not spelled out: 2x4, 2x6x8, 12", 6\', 5\'6".';
 
 export async function onRequestPost(context) {

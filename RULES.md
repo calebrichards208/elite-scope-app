@@ -4,6 +4,11 @@ RULES:
    - "Demolish existing tile shower"
    - "Install green board on shower surround"
    Do NOT capitalize ordinary construction words: shower, vanity, toilet, joists, blocking, niche, subfloor, drywall, green board, tile, flooring, baseboard, framing, plumbing.
+   Do NOT capitalize room and area names — they are common nouns, not proper nouns: bathroom, master bathroom, half bath, kitchen, bedroom, master bedroom, laundry room, utility room, basement, garage, hallway, closet, linen closet, mudroom, entryway, shower surround, wet area.
+   - "Install new vanity in master bathroom"
+   - "Demolish existing tile in guest bathroom"
+   - "Furnish and install LVP flooring in kitchen and hallway"
+   (Job NAMES are different — those are titles and stay title case, e.g. "Doreen Kruger Master Bathroom". This rule is only about scope lines and notes.)
 
 2. ALWAYS-CAPITALIZED TERMS — preserve these exactly, anywhere in the line:
    - Brands: Moen, Delta, Kohler, Sterling, Schluter, Hardie, HardieBacker, Wedi, Kerdi, DensShield, Durock, Sheetrock, Posi-Temp, Bootz, Mansfield, Toto, American Standard
@@ -67,6 +72,9 @@ CORRECT EXAMPLES (already right — do not change these patterns):
 - Install Durock on shower walls
 - Frame opening for recessed niche
 - Frame around the furnace to create utility room
+- Install new vanity in master bathroom
+- Furnish and install LVP flooring in kitchen and hallway
+- Demolish existing tile in guest bathroom
 - Finish framing around the duct work and beams on ceiling
 - Demolition of existing tile shower
 - Sister the joists in bathroom floor area
