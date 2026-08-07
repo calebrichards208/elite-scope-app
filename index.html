@@ -930,7 +930,10 @@ h1, h2, .label {
           <div id="exhibit-banner-text" style="font-size:12px;color:var(--slate);font-weight:500"></div>
           <button onclick="clearAllLines()" style="font-size:11px;font-family:'DM Sans',sans-serif;color:var(--slate-lt);background:none;border:none;cursor:pointer;padding:2px 6px;border-radius:4px;white-space:nowrap" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--slate-lt)'">Clear all</button>
         </div>
-        <button id="mode-switch-btn" type="button" onclick="toggleMode()" style="margin-top:8px;width:100%;font-size:12px;font-family:'DM Sans',sans-serif;font-weight:600;color:var(--slate);background:#fff;border:1px solid var(--silver);border-radius:6px;padding:8px;cursor:pointer"></button>
+        <div style="display:flex;margin-top:8px;border:1px solid var(--silver);border-radius:6px;overflow:hidden">
+          <button id="mode-tab-exhibit" type="button" onclick="setMode('exhibit')" style="flex:1;font-size:13px;font-family:'DM Sans',sans-serif;font-weight:600;border:none;padding:9px;cursor:pointer">Exhibit</button>
+          <button id="mode-tab-changeorder" type="button" onclick="setMode('changeOrder')" style="flex:1;font-size:13px;font-family:'DM Sans',sans-serif;font-weight:600;border:none;border-left:1px solid var(--silver);padding:9px;cursor:pointer">Change Order</button>
+        </div>
       </div>
       <!-- Loading indicator while checking for exhibits -->
       <div id="exhibit-loading" class="hidden" style="margin-top:10px;text-align:center;font-size:12px;color:var(--slate-lt);padding:6px">
@@ -1652,7 +1655,9 @@ function showScopeBanner() {
     renderLines();
     document.getElementById('total-price').value = '';
     bannerText.textContent =
-      `Contract signed · Creating ${changeOrderGroupName(currentChangeOrder)}`;
+      // Deliberately does not claim "Contract signed" — the mode can be set by
+      // hand on a job with no signed contract, which made the banner lie.
+      `Creating ${changeOrderGroupName(currentChangeOrder)}`;
     show('exhibit-banner');
     return;
   }
@@ -1681,10 +1686,11 @@ function showScopeBanner() {
   }
 }
 
-function toggleMode() {
+function setMode(mode) {
   const btn = document.getElementById('submit-btn');
-  if (btn && btn.disabled) return;
-  currentMode = currentMode === 'changeOrder' ? 'exhibit' : 'changeOrder';
+  if (btn && btn.disabled) return;   // never switch mid-post
+  if (mode === currentMode) return;
+  currentMode = mode;
   showScopeBanner();
   updateSubmitLabel();
 }
@@ -1696,14 +1702,20 @@ function updateSubmitLabel() {
       ? 'Post Change Order + Generate Document'
       : 'Post Exhibit + Generate Proposal';
   }
-  // Name the destination, not the action — "Switch to…" reads as a label for
-  // where you are, which is exactly the confusion the bare banner tap caused.
-  const modeBtn = document.getElementById('mode-switch-btn');
-  if (modeBtn) {
-    modeBtn.textContent = currentMode === 'changeOrder'
-      ? '⇄  This is not a change order — switch to Exhibit'
-      : '⇄  This is a change order — switch to Change Order';
-  }
+  // A two-tab control: the selected tab states what this IS, the other is the
+  // way to change it. Earlier wording put a claim in the button that
+  // contradicted the banner above it.
+  const tabs = {
+    exhibit:     document.getElementById('mode-tab-exhibit'),
+    changeOrder: document.getElementById('mode-tab-changeorder')
+  };
+  Object.keys(tabs).forEach(mode => {
+    const tab = tabs[mode];
+    if (!tab) return;
+    const active = mode === currentMode;
+    tab.style.background = active ? 'var(--slate)' : '#fff';
+    tab.style.color      = active ? '#fff' : 'var(--slate-lt)';
+  });
 }
 
 function clearAllLines() {
