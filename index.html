@@ -203,21 +203,21 @@ h1, h2, .label {
 .job-search:focus { outline: none; border-color: var(--amber); }
 
 .job-list {
-  max-height: 220px;
+  max-height: 340px;
   overflow-y: auto;
   border: 1.5px solid var(--silver);
   border-radius: var(--radius-sm);
 }
 .job-item {
-  padding: 12px 14px;
+  padding: 15px 14px;
   cursor: pointer;
   border-bottom: 1px solid var(--silver);
   transition: background 0.1s;
 }
 .job-item:last-child { border-bottom: none; }
 .job-item:hover, .job-item:active { background: var(--amber-lt); }
-.job-name { font-size: 15px; font-weight: 500; color: var(--navy); }
-.job-meta { font-size: 12px; color: var(--slate-lt); margin-top: 2px; }
+.job-name { font-size: 16px; font-weight: 600; color: var(--navy); }
+.job-meta { font-size: 13px; color: var(--slate-lt); margin-top: 3px; }
 
 .job-list-status {
   padding: 16px;
@@ -1163,9 +1163,8 @@ let costTypeId   = '22PU7gmNf9aq';
 // JobTread custom field: "Pipeline Stage" — update this ID if the field is
 // ever deleted and recreated in JobTread (a rename alone won't break it).
 const PIPELINE_STAGE_FIELD_ID = '22PEaNuVnE52';
-// The stage GoHighLevel auto-syncs new jobs into. Jobs land here the moment an
-// appointment is booked, so this is the default list the app shows.
-const SYNC_STAGE_VALUE        = 'Appointment Booked';
+// Stage is shown on each job row for context, but is never used to filter the
+// list — see openJobs().
 let anthropicKey = '';
 let openaiKey     = '';
 let restoredSession = null; // set once in init(), consumed once jobs/lines are ready
@@ -1331,7 +1330,7 @@ async function loadJobs() {
     } while (page);
 
     allJobs = fetchedJobs;
-    renderJobList(syncStageJobs());
+    renderJobList(openJobs());
 
     if (restoredSession) {
       const savedLines = restoredSession.lines.map(text => ({ id: nextLineId++, text }));
@@ -1539,29 +1538,37 @@ function getJobStage(job) {
   return cfv?.value || null;
 }
 
-function syncStageJobs() {
-  return allJobs.filter(j => getJobStage(j) === SYNC_STAGE_VALUE);
+// The default list is every OPEN job, newest first. It used to show only the
+// sync stage, which in practice meant 2 jobs out of 56 — so the list looked
+// broken and every real lookup needed a search. Stage is deliberately not used
+// to filter: 13 open jobs carry no stage at all, and stage depends on someone
+// maintaining it by hand. Closed jobs stay out of the default but remain
+// findable by search, labelled "(closed)".
+function openJobs() {
+  return allJobs.filter(j => !j.closedOn);
 }
 
 function renderJobList(jobs, searchMode = false) {
   shownJobs = jobs;
   const el = document.getElementById('job-list');
   if (!jobs.length) {
-    el.innerHTML = `<div class="job-list-status">${searchMode ? 'No jobs match that search' : `No jobs in "${SYNC_STAGE_VALUE}"`}</div>`;
+    el.innerHTML = `<div class="job-list-status">${searchMode ? 'No jobs match that search' : 'No open jobs'}</div>`;
     return;
   }
   const hint = !searchMode
-    ? `<div style="font-size:11px;color:var(--slate-lt);padding:6px 12px 2px;text-align:center">Showing "${SYNC_STAGE_VALUE}" · search to find any job</div>`
+    ? `<div style="font-size:12px;color:var(--slate-lt);padding:7px 12px 3px;text-align:center">${jobs.length} open jobs · newest first · search by name</div>`
     : '';
   el.innerHTML = hint + jobs.map((j, i) => {
-    const stage = searchMode ? getJobStage(j) : null;
-    const stagePill = stage && stage !== SYNC_STAGE_VALUE
-      ? ` <span style="font-size:10px;color:var(--slate-lt);font-weight:400;white-space:nowrap">${escHtml(stage)}</span>`
+    const stage  = getJobStage(j);
+    const closed = j.closedOn
+      ? '<span style="font-size:12px;color:var(--slate-lt);font-weight:400">(closed)</span>'
       : '';
+    const meta = [j.number ? '#' + j.number : '', escHtml(stage || 'No stage'), closed]
+      .filter(Boolean).join(' · ');
     return `
     <div class="job-item" onclick="pickJob(${i})">
-      <div class="job-name">${escHtml(j.name || 'Untitled Job')}${j.closedOn ? ' <span style="font-size:11px;color:var(--slate-lt);font-weight:400">(closed)</span>' : ''}${stagePill}</div>
-      <div class="job-meta">${j.number ? '#' + j.number : ''}</div>
+      <div class="job-name">${escHtml(j.name || 'Untitled Job')}</div>
+      <div class="job-meta">${meta}</div>
     </div>`;
   }).join('');
 }
@@ -1569,7 +1576,7 @@ function renderJobList(jobs, searchMode = false) {
 function filterJobs(q) {
   const lq = q.toLowerCase().trim();
   if (!lq) {
-    renderJobList(syncStageJobs(), false);
+    renderJobList(openJobs(), false);
     return;
   }
   renderJobList(allJobs.filter(j =>
@@ -1772,7 +1779,7 @@ function changeJob() {
   hide('exhibit-banner');
   hide('exhibit-loading');
   document.getElementById('job-search').value = '';
-  renderJobList(syncStageJobs());
+  renderJobList(openJobs());
   document.getElementById('badge-1').classList.remove('done');
   document.getElementById('badge-1').textContent = '1';
   document.getElementById('dot-1').classList.add('active');
