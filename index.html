@@ -2390,7 +2390,8 @@ async function reviewWithAI() {
     const toolUseBlock = (data.content || []).find(b => b.type === 'tool_use');
     if (!toolUseBlock) throw new Error('AI did not return a structured response');
 
-    const { lines: reviewedLines, notes: reviewedNotes } = parseReviewToolInput(toolUseBlock.input, lines.length);
+    const { lines: reviewedLines, notes: reviewedNotes } =
+      parseReviewToolInput(toolUseBlock.input, lines.map(l => l.text));
 
     lastReviewSnapshot = lines.map(l => ({ id: l.id, text: l.text }));
     originalTextById   = new Map();
