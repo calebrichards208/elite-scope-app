@@ -1495,6 +1495,11 @@ async function selectJob(job) {
 
     hide('exhibit-loading');
 
+    // Restore the mode from any in-progress draft BEFORE showScopeBanner()
+    // runs, so the banner and any restored lines below always agree.
+    const draft = loadDraft(job.id);
+    if (draft && (draft.mode === 'exhibit' || draft.mode === 'changeOrder')) currentMode = draft.mode;
+
     if (existingExhibits.length === 0) {
       currentExhibit = 'A';
       showScopeBanner();
@@ -1507,6 +1512,8 @@ async function selectJob(job) {
     hide('exhibit-loading');
     currentExhibit = 'A';
     currentMode = 'exhibit';
+    const draftFallback = loadDraft(job.id);
+    if (draftFallback && (draftFallback.mode === 'exhibit' || draftFallback.mode === 'changeOrder')) currentMode = draftFallback.mode;
     console.warn('Could not fetch exhibits:', e.message);
     showScopeBanner();
     updateSubmitLabel();
@@ -1536,6 +1543,8 @@ function showScopeBanner() {
     const numbers = existingChangeOrders.map(o => o.number);
     currentChangeOrder = nextChangeOrderNumber(numbers);
     lines = [];
+    changedIndices = new Set();
+    flaggedLines = new Map();
     renderLines();
     document.getElementById('total-price').value = '';
     bannerText.textContent =
@@ -1569,6 +1578,8 @@ function showScopeBanner() {
 }
 
 function toggleMode() {
+  const btn = document.getElementById('submit-btn');
+  if (btn && btn.disabled) return;
   currentMode = currentMode === 'changeOrder' ? 'exhibit' : 'changeOrder';
   showScopeBanner();
   updateSubmitLabel();
@@ -1752,7 +1763,8 @@ function saveDraft(jobId) {
   if (!jobId) return;
   localStorage.setItem(draftKey(jobId), JSON.stringify({
     lines: lines.map(l => l.text),
-    notes: document.getElementById('additional-notes').value
+    notes: document.getElementById('additional-notes').value,
+    mode: currentMode
   }));
 }
 
