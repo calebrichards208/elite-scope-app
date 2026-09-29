@@ -411,3 +411,78 @@ test('appendProjectName tolerates junk input', () => {
   assert.strictEqual(appendProjectName('Doreen Smith', 'Bath   Remodel'), 'Doreen Smith Bath Remodel');
   assert.strictEqual(appendProjectName('', 'Bathroom'), '');
 });
+
+// ── Customer contact on the document ───────────────────────────────
+const { contactDetails } = require('../lib/scopeGroups.js');
+
+test('contactDetails reads email and phone off the contact custom fields', () => {
+  const details = contactDetails({
+    name: 'Bill Anker',
+    customFieldValues: { nodes: [
+      { value: 'billandlorna@gmail.com', customField: { name: 'Email', type: 'emailAddress' } },
+      { value: '+15099535012',           customField: { name: 'Phone', type: 'phoneNumber' } }
+    ] }
+  });
+  assert.deepStrictEqual(details, {
+    toEmailAddress: 'billandlorna@gmail.com',
+    toPhoneNumber:  '+15099535012'
+  });
+});
+
+test('contactDetails skips blank values and tolerates a missing contact', () => {
+  assert.deepStrictEqual(contactDetails({
+    customFieldValues: { nodes: [
+      { value: '',            customField: { type: 'emailAddress' } },
+      { value: 'b@x.com',     customField: { type: 'emailAddress' } }
+    ] }
+  }), { toEmailAddress: 'b@x.com', toPhoneNumber: null });
+  assert.deepStrictEqual(contactDetails(undefined), { toEmailAddress: null, toPhoneNumber: null });
+});
+
+test('buildDocumentParams carries the customer email and phone', () => {
+  const params = buildDocumentParams(
+    { name: 'Proposal', type: 'customerOrder' },
+    { jobId: 'j', lineItems: [], taxRate: 0, toName: 'X', fallbackFromName: 'Y',
+      toEmailAddress: 'b@x.com', toPhoneNumber: '+15095550100' }
+  );
+  assert.strictEqual(params.toEmailAddress, 'b@x.com');
+  assert.strictEqual(params.toPhoneNumber, '+15095550100');
+});
+
+test('buildDocumentParams omits email and phone the contact does not have', () => {
+  const params = buildDocumentParams(
+    { name: 'Proposal', type: 'customerOrder' },
+    { jobId: 'j', lineItems: [], taxRate: 0, toName: 'X', fallbackFromName: 'Y',
+      toEmailAddress: null, toPhoneNumber: null }
+  );
+  assert.strictEqual('toEmailAddress' in params, false);
+  assert.strictEqual('toPhoneNumber' in params, false);
+});
+
+// ── Elite's contact on the document ────────────────────────────────
+test('buildDocumentParams falls back to the grant identity for email, phone and address', () => {
+  const params = buildDocumentParams(
+    { name: 'Proposal', type: 'customerOrder',
+      fromEmailAddress: null, fromPhoneNumber: null, fromAddress: null },
+    { jobId: 'j', lineItems: [], taxRate: 0, toName: 'X', fallbackFromName: 'Y',
+      fallbackFromEmailAddress: 'office@elite-spokane.com',
+      fallbackFromPhoneNumber:  '+15095056655',
+      fallbackFromAddress:      '9116 E Sprague Ave #266, Spokane Valley, WA 99206' }
+  );
+  assert.strictEqual(params.fromEmailAddress, 'office@elite-spokane.com');
+  assert.strictEqual(params.fromPhoneNumber, '+15095056655');
+  assert.strictEqual(params.fromAddress, '9116 E Sprague Ave #266, Spokane Valley, WA 99206');
+});
+
+test('buildDocumentParams prefers the template email, phone and address when set', () => {
+  const params = buildDocumentParams(
+    { name: 'Proposal', type: 'customerOrder',
+      fromEmailAddress: 't@x.com', fromPhoneNumber: '+1', fromAddress: 'T St' },
+    { jobId: 'j', lineItems: [], taxRate: 0, toName: 'X', fallbackFromName: 'Y',
+      fallbackFromEmailAddress: 'g@x.com', fallbackFromPhoneNumber: '+2',
+      fallbackFromAddress: 'G St' }
+  );
+  assert.strictEqual(params.fromEmailAddress, 't@x.com');
+  assert.strictEqual(params.fromPhoneNumber, '+1');
+  assert.strictEqual(params.fromAddress, 'T St');
+});

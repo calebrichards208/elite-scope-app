@@ -1465,16 +1465,21 @@ async function fetchJobCustomer(jobId) {
       $: { id: jobId },
       location: {
         id: {}, name: {}, address: {}, taxRate: {},
-        account: { id: {}, name: {}, contacts: { nodes: { id: {}, name: {} } } }
+        account: { id: {}, name: {}, contacts: { nodes: {
+          id: {}, name: {},
+          customFieldValues: { nodes: { value: {}, customField: { type: {} } } }
+        } } }
       }
     }
   });
   const loc = data?.job?.location || {};
+  const contact = loc.account?.contacts?.nodes?.[0];
   return {
     taxRate:             loc.taxRate || 0,
     toAddress:           loc.address || null,
     toOrganizationName:  loc.account?.name || null,
-    toName:              loc.account?.contacts?.nodes?.[0]?.name || loc.account?.name || null,
+    toName:              contact?.name || loc.account?.name || null,
+    ...contactDetails(contact),
     jobLocationName:     loc.name || null,
     jobLocationAddress:  loc.address || null
   };
@@ -1553,16 +1558,25 @@ async function fetchNotesItem(notesItemId) {
   return item ? { id: item.id, description: item.description || '' } : null;
 }
 
-// createDocument requires fromName, but the templates leave it null — the
-// grant's own user and organization fill it in.
+// createDocument requires fromName, but the templates leave it and Elite's
+// contact details null — the grant's own user and organization fill them in,
+// the same sources the JobTread UI uses.
 async function fetchGrantIdentity() {
   const data = await jtPost({
     $: { grantKey },
-    currentGrant: { user: { name: {} }, organization: { name: {} } }
+    currentGrant: {
+      user:         { name: {}, emailAddress: {}, phoneNumber: {} },
+      organization: { name: {}, address: {} }
+    }
   });
+  const user = data?.currentGrant?.user;
+  const org  = data?.currentGrant?.organization;
   return {
-    fallbackFromName:             data?.currentGrant?.user?.name || 'Elite Construction + Remodeling',
-    fallbackFromOrganizationName: data?.currentGrant?.organization?.name || null
+    fallbackFromName:             user?.name || 'Elite Construction + Remodeling',
+    fallbackFromOrganizationName: org?.name || null,
+    fallbackFromEmailAddress:     user?.emailAddress || null,
+    fallbackFromPhoneNumber:      user?.phoneNumber || null,
+    fallbackFromAddress:          org?.address || null
   };
 }
 
