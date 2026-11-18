@@ -1,0 +1,21 @@
+# Files Cloudflare must NOT publish as website files.
+# wrangler.jsonc serves the whole project folder ("directory": "."), so without
+# this list the live site handed out .git (full source + history), the worker
+# code, docs and tests. Only index.html and lib/ need to be public.
+# Found 11/18/26 during a secrets audit.
+.git
+.gitignore
+.assetsignore
+.claude
+.superpowers
+.wrangler
+.DS_Store
+node_modules
+wrangler.jsonc
+worker.js
+functions
+test
+docs
+*.md
+package.json
+package-lock.json
