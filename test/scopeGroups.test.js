@@ -486,3 +486,19 @@ test('buildDocumentParams prefers the template email, phone and address when set
   assert.strictEqual(params.fromPhoneNumber, '+1');
   assert.strictEqual(params.fromAddress, 'T St');
 });
+
+const { sortJobsForPicker } = require('../lib/scopeGroups.js');
+
+test('sortJobsForPicker puts Appointment Booked jobs first, keeping newest-first within each group', () => {
+  const jobs = [
+    { id: 'new-sent',   stage: 'Proposal Sent' },
+    { id: 'new-appt',   stage: 'Appointment Booked' },
+    { id: 'no-stage',   stage: null },
+    { id: 'old-appt',   stage: 'appointment booked ' },
+    { id: 'old-sold',   stage: 'Sold' }
+  ];
+  const sorted = sortJobsForPicker(jobs, j => j.stage);
+  assert.deepStrictEqual(sorted.map(j => j.id),
+    ['new-appt', 'old-appt', 'new-sent', 'no-stage', 'old-sold']);
+  assert.strictEqual(jobs[0].id, 'new-sent', 'does not mutate the input');
+});

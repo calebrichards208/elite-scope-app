@@ -1624,14 +1624,15 @@ function getJobStage(job) {
   return cfv?.value || null;
 }
 
-// The default list is every OPEN job, newest first. It used to show only the
-// sync stage, which in practice meant 2 jobs out of 56 — so the list looked
-// broken and every real lookup needed a search. Stage is deliberately not used
-// to filter: 13 open jobs carry no stage at all, and stage depends on someone
-// maintaining it by hand. Closed jobs stay out of the default but remain
-// findable by search, labelled "(closed)".
+// The default list is every OPEN job: "Appointment Booked" jobs first (they
+// still need a scope built and sent), then the rest, newest first within each
+// group. It used to show only the sync stage, which in practice meant 2 jobs
+// out of 56 — so the list looked broken and every real lookup needed a search.
+// Stage is deliberately not used to filter, only to order: 13 open jobs carry
+// no stage at all, and stage depends on someone maintaining it by hand. Closed
+// jobs stay out of the default but remain findable by search, labelled "(closed)".
 function openJobs() {
-  return allJobs.filter(j => !j.closedOn);
+  return sortJobsForPicker(allJobs.filter(j => !j.closedOn), getJobStage);
 }
 
 function renderJobList(jobs, searchMode = false) {
@@ -1642,7 +1643,7 @@ function renderJobList(jobs, searchMode = false) {
     return;
   }
   const hint = !searchMode
-    ? `<div style="font-size:12px;color:var(--slate-lt);padding:7px 12px 3px;text-align:center">${jobs.length} open jobs · newest first · search by name</div>`
+    ? `<div style="font-size:12px;color:var(--slate-lt);padding:7px 12px 3px;text-align:center">${jobs.length} open jobs · appointment booked first · search by name</div>`
     : '';
   el.innerHTML = hint + jobs.map((j, i) => {
     const stage  = getJobStage(j);
