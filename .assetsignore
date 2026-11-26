@@ -17,5 +17,8 @@ functions
 test
 docs
 *.md
+# RULES.md must stay public: the app fetches it for "Review with AI".
+# Hiding it broke the review with "Could not load RULES.md (HTTP 500)" (11/26).
+!RULES.md
 package.json
 package-lock.json
