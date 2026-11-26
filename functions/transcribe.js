@@ -22,8 +22,17 @@ const TRANSCRIPTION_VOCAB_HINT =
 
 export async function onRequestPost(context) {
   const { request } = context;
+  let formData;
   try {
-    const formData = await request.formData();
+    formData = await request.formData();
+  } catch {
+    // Not form data at all: the caller's mistake, not a server error.
+    return new Response(JSON.stringify({ error: 'Request must be form data with audio and apiKey' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  try {
     const audio  = formData.get('audio');
     const apiKey = formData.get('apiKey');
 

@@ -1,7 +1,17 @@
 export async function onRequestPost(context) {
   const { request, env } = context;
+  let payload;
   try {
-    const { type, title, body } = await request.json();
+    payload = await request.json();
+  } catch {
+    // Not JSON at all: the caller's mistake, not a server error.
+    return new Response(JSON.stringify({ error: 'Request body must be JSON' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  try {
+    const { type, title, body } = payload || {};
 
     if (!type || !title || !body) {
       return new Response(JSON.stringify({ error: 'Missing type, title, or body' }), {

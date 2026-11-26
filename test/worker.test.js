@@ -15,3 +15,17 @@ test('GET /transcribe falls through to 404', async () => {
   const response = await worker.fetch(new Request('https://example.com/transcribe'), {});
   assert.strictEqual(response.status, 404);
 });
+
+// A malformed body is the caller's mistake: answer 400, not a 500 crash.
+test('POST /transcribe with no form body returns 400', async () => {
+  const { default: worker } = await import('../worker.js');
+  const response = await worker.fetch(new Request('https://example.com/transcribe', { method: 'POST' }), {});
+  assert.strictEqual(response.status, 400);
+});
+
+test('POST /github-issue with a non-JSON body returns 400', async () => {
+  const { default: worker } = await import('../worker.js');
+  const request = new Request('https://example.com/github-issue', { method: 'POST', body: 'not json' });
+  const response = await worker.fetch(request, {});
+  assert.strictEqual(response.status, 400);
+});
