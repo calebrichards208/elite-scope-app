@@ -12,6 +12,9 @@ export default {
       return handleGithubIssue({ request, env });
     }
 
-    return env.ASSETS.fetch(request);
+    // Cloudflare serves real files before this worker runs, so reaching here
+    // means the file is missing or hidden by .assetsignore. There is no ASSETS
+    // binding in wrangler.jsonc; calling it crashed every miss into a 500.
+    return new Response('Not found', { status: 404 });
   }
 };
